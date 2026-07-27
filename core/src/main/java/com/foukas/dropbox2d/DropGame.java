@@ -114,6 +114,7 @@ public class DropGame extends ApplicationAdapter {
         batch = new SpriteBatch();
         font = new BitmapFont();
         font.setColor(Color.WHITE);
+        updateFontScale();
 
         startNewRun();
     }
@@ -395,6 +396,19 @@ public class DropGame extends ApplicationAdapter {
     public void resize(int width, int height) {
         viewport.update(width, height);
         hudCamera.setToOrtho(false, width, height);
+        updateFontScale();
+    }
+
+    // The default BitmapFont is sized in raw pixels (~15px cap height),
+    // which reads fine on the ~960px-tall desktop dev window but is tiny
+    // on a much higher-resolution phone screen. Scale it relative to
+    // screen height so it stays legible across both.
+    private static final float FONT_REFERENCE_HEIGHT = 960f;
+
+    private void updateFontScale() {
+        if (font == null) return;
+        float scale = Gdx.graphics.getHeight() / FONT_REFERENCE_HEIGHT;
+        font.getData().setScale(Math.max(1f, scale));
     }
 
     @Override
