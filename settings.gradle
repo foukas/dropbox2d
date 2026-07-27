@@ -1,0 +1,5 @@
+rootProject.name = 'dropbox2d'
+
+include ':core'
+include ':desktop'
+include ':android'

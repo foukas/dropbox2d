@@ -1,0 +1,32 @@
+buildscript {
+    repositories {
+        google()
+        mavenCentral()
+        gradlePluginPortal()
+    }
+    dependencies {
+        classpath 'com.android.tools.build:gradle:8.9.1'
+    }
+}
+
+allprojects {
+    version = '0.1'
+    ext {
+        appName = 'dropbox2d'
+    }
+
+    repositories {
+        mavenCentral()
+        google()
+    }
+}
+
+configure(subprojects - project(':android')) {
+    apply plugin: 'java-library'
+    sourceCompatibility = 17
+    targetCompatibility = 17
+}
+
+project(':desktop') {
+    apply plugin: 'application'
+}
