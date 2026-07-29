@@ -32,7 +32,8 @@ import com.foukas.dropbox2d.generation.GapReachabilityValidator;
 import com.foukas.dropbox2d.generation.PlatformType;
 import com.foukas.dropbox2d.physics.DebrisManager;
 import com.foukas.dropbox2d.physics.PhysicsNaNGuard;
-import com.foukas.dropbox2d.powerups.WreckingBallManager;
+import com.foukas.dropbox2d.powerups.PowerUpManager;
+import com.foukas.dropbox2d.powerups.WreckingBallPowerUp;
 
 import java.util.ArrayDeque;
 import java.util.ArrayList;
@@ -40,12 +41,13 @@ import java.util.List;
 
 /**
  * Approach C built on the Post-Validation Hardening foundation: destructible
- * weak platforms (fixture removal, break-threshold driven by real Box2D
- * contact impulse) and the wrecking-ball power-up (a real density change,
- * not a scripted override -- see WreckingBallManager). PlatformDestroyed
- * and PowerUpCollected are new event types added to the existing bus;
- * nothing about the collision/scoring/game-over code from Hardening had to
- * change to accommodate them.
+ * weak platforms (fixture removal, break-threshold driven by pre-solve
+ * momentum so a breaking platform never bounces the ball first) and a
+ * registry of power-ups (currently one: wrecking-ball, a real density
+ * change, not a scripted override -- see WreckingBallPowerUp).
+ * PlatformDestroyed and PowerUpCollected are event types added to the
+ * existing bus; nothing about the collision/scoring/game-over code from
+ * Hardening had to change to accommodate them.
  */
 public class DropGame extends ApplicationAdapter implements GameEventListener {
 
@@ -72,6 +74,10 @@ public class DropGame extends ApplicationAdapter implements GameEventListener {
     private static final float WEAK_PLATFORM_CHANCE = 0.35f;
     private static final float POWERUP_SPAWN_CHANCE = 0.15f;
     private static final float POWERUP_RADIUS = 0.25f;
+    // Registered power-up types (must match PowerUpManager.register keys in
+    // startNewRun). One entry today; adding a second type is adding it here
+    // plus a register() call -- pickup placement/rendering stay type-agnostic.
+    private static final String[] POWER_UP_TYPES = {"wreckingBall"};
 
     private static final float SCROLL_BASE_SPEED = 1.6f;
     private static final float SCROLL_RAMP_PER_METER = 0.02f;
@@ -113,7 +119,7 @@ public class DropGame extends ApplicationAdapter implements GameEventListener {
     private ScoreManager scoreManager;
     private GameOverController gameOverController;
     private DebrisManager debrisManager;
-    private WreckingBallManager wreckingBallManager;
+    private PowerUpManager powerUpManager;
 
     private final List<PlatformRow> rows = new ArrayList<>();
     private final ArrayDeque<PlatformRow> pendingScoreRows = new ArrayDeque<>();
@@ -167,7 +173,8 @@ public class DropGame extends ApplicationAdapter implements GameEventListener {
 
         spawnY = 0f;
         ballBody = createBall(WORLD_WIDTH / 2f, spawnY + 1.5f);
-        wreckingBallManager = new WreckingBallManager(ballBody);
+        powerUpManager = new PowerUpManager();
+        powerUpManager.register("wreckingBall", new WreckingBallPowerUp(ballBody));
         debrisManager = new DebrisManager(world);
 
         camera.position.set(WORLD_WIDTH / 2f, spawnY, 0f);
@@ -246,7 +253,12 @@ public class DropGame extends ApplicationAdapter implements GameEventListener {
      * NORMAL vs WEAK -- weak segments never replace the gap itself, only
      * add an optional shortcut alongside it (see PlatformType's class
      * comment for why that resolves the reachability-risk open question).
-     * A power-up pickup occasionally spawns centered in the gap. */
+     * A power-up pickup occasionally spawns ON one of the flanking
+     * platform segments (not centered in the gap) -- reaching it costs a
+     * deliberate detour off the fall-through-the-gap line, which also
+     * means landing on a platform and eating the combo-chain reset from
+     * ScoreManager. That's the intended tradeoff: free score via the gap,
+     * or a power-up via a detour that costs it. */
     private void spawnNextRow() {
         float rowY = lowestGeneratedY;
         lowestGeneratedY -= ROW_SPACING;
@@ -288,8 +300,20 @@ public class DropGame extends ApplicationAdapter implements GameEventListener {
 
         Body powerUp = null;
         if (MathUtils.random() < POWERUP_SPAWN_CHANCE) {
-            float pickupX = gapStart + gapWidth / 2f;
-            powerUp = createPowerUpPickup(pickupX, rowY);
+            List<float[]> availableSpans = new ArrayList<>(2);
+            if (left != null) availableSpans.add(new float[]{0f, gapStart});
+            if (right != null) availableSpans.add(new float[]{gapEnd, WORLD_WIDTH});
+            if (!availableSpans.isEmpty()) {
+                float[] span = availableSpans.get(MathUtils.random(availableSpans.size() - 1));
+                float spanWidth = span[1] - span[0];
+                float inset = Math.min(0.4f, spanWidth / 3f);
+                float lo = span[0] + inset;
+                float hi = span[1] - inset;
+                float pickupX = hi > lo ? MathUtils.random(lo, hi) : (span[0] + span[1]) / 2f;
+                float pickupY = rowY + PLATFORM_THICKNESS / 2f + POWERUP_RADIUS + 0.15f;
+                String type = POWER_UP_TYPES[MathUtils.random(POWER_UP_TYPES.length - 1)];
+                powerUp = createPowerUpPickup(pickupX, pickupY, type);
+            }
         }
 
         PlatformRow row = new PlatformRow(rowY, left, right, powerUp);
@@ -320,7 +344,7 @@ public class DropGame extends ApplicationAdapter implements GameEventListener {
         return body;
     }
 
-    private Body createPowerUpPickup(float x, float y) {
+    private Body createPowerUpPickup(float x, float y, String type) {
         BodyDef bodyDef = new BodyDef();
         bodyDef.type = BodyDef.BodyType.StaticBody;
         bodyDef.position.set(x, y);
@@ -333,7 +357,7 @@ public class DropGame extends ApplicationAdapter implements GameEventListener {
         fixtureDef.shape = shape;
         fixtureDef.isSensor = true;
         Fixture fixture = body.createFixture(fixtureDef);
-        fixture.setUserData("powerUp");
+        fixture.setUserData("powerUp:" + type);
         shape.dispose();
 
         return body;
@@ -347,7 +371,7 @@ public class DropGame extends ApplicationAdapter implements GameEventListener {
             handleInput(delta);
             stepPhysics(delta);
             drainPendingWorldMutations();
-            wreckingBallManager.update(delta);
+            powerUpManager.update(delta);
             updateCameraAndScroll(delta);
             manageRows();
             checkGameOver();
@@ -396,14 +420,14 @@ public class DropGame extends ApplicationAdapter implements GameEventListener {
         for (PlatformDestroyed destroyed : pendingPlatformDestructions) {
             removeBodyFromRows(destroyed.body());
             world.destroyBody(destroyed.body());
-            debrisManager.spawnDebris(destroyed.x(), destroyed.y());
+            debrisManager.spawnDebris(destroyed.x(), destroyed.y(), destroyed.width());
         }
         pendingPlatformDestructions.clear();
 
         for (PowerUpCollected collected : pendingPowerUpPickups) {
             removeBodyFromRows(collected.body());
             world.destroyBody(collected.body());
-            wreckingBallManager.activate();
+            powerUpManager.activate(collected.type());
         }
         pendingPowerUpPickups.clear();
     }
@@ -500,7 +524,7 @@ public class DropGame extends ApplicationAdapter implements GameEventListener {
         }
 
         boolean gameOver = gameOverController.isGameOver();
-        Color ballColor = gameOver ? Color.RED : (wreckingBallManager.isActive() ? WRECKING_BALL_COLOR : Color.ORANGE);
+        Color ballColor = gameOver ? Color.RED : (powerUpManager.isActive() ? WRECKING_BALL_COLOR : Color.ORANGE);
         shapeRenderer.setColor(ballColor);
         shapeRenderer.circle(ballBody.getPosition().x, ballBody.getPosition().y, BALL_RADIUS, 24);
 
@@ -510,8 +534,8 @@ public class DropGame extends ApplicationAdapter implements GameEventListener {
         batch.begin();
         StringBuilder label = new StringBuilder("Depth: ").append((int) depthScore)
             .append("m   Combo: ").append(scoreManager.getComboChain());
-        if (wreckingBallManager.isActive()) {
-            label.append(String.format("\nWRECKING BALL: %.1fs", wreckingBallManager.getRemaining()));
+        if (powerUpManager.isActive()) {
+            label.append(String.format("\n%s: %.1fs", displayName(powerUpManager.getActiveType()), powerUpManager.getRemaining()));
         }
         if (gameOver) {
             label.append("\nGAME OVER -- tap to retry");
@@ -533,6 +557,15 @@ public class DropGame extends ApplicationAdapter implements GameEventListener {
         float x = body.getPosition().x;
         float y = body.getPosition().y;
         shapeRenderer.rect(x - hx, y - PLATFORM_THICKNESS / 2f, hx * 2f, PLATFORM_THICKNESS);
+    }
+
+    // Small type-tag -> display-name mapping so the HUD doesn't print raw
+    // registry keys. Add a case here alongside each new register() call.
+    private String displayName(String type) {
+        if ("wreckingBall".equals(type)) {
+            return "WRECKING BALL";
+        }
+        return type == null ? "" : type.toUpperCase();
     }
 
     private void drawPowerUp(Body body) {

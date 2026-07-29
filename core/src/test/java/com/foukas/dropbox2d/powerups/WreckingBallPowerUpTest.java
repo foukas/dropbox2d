@@ -17,11 +17,11 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-class WreckingBallManagerTest {
+class WreckingBallPowerUpTest {
 
     private World world;
     private Body ballBody;
-    private WreckingBallManager manager;
+    private WreckingBallPowerUp powerUp;
     private float normalMass;
 
     @BeforeAll
@@ -46,7 +46,7 @@ class WreckingBallManagerTest {
         ballBody.resetMassData();
         normalMass = ballBody.getMass();
 
-        manager = new WreckingBallManager(ballBody);
+        powerUp = new WreckingBallPowerUp(ballBody);
     }
 
     @AfterEach
@@ -56,45 +56,45 @@ class WreckingBallManagerTest {
 
     @Test
     void startsInactive() {
-        assertFalse(manager.isActive());
+        assertFalse(powerUp.isActive());
         assertEquals(normalMass, ballBody.getMass(), 0.0001f);
     }
 
     @Test
     void activateIncreasesActualBallMass() {
-        manager.activate();
+        powerUp.activate();
 
-        assertTrue(manager.isActive());
+        assertTrue(powerUp.isActive());
         assertTrue(ballBody.getMass() > normalMass * 5f, "wrecking-ball mass should be a large multiple of normal mass");
     }
 
     @Test
     void expiresAfterItsDurationAndRestoresNormalMass() {
-        manager.activate();
-        manager.update(4.9f);
-        assertTrue(manager.isActive(), "should still be active just before its duration elapses");
+        powerUp.activate();
+        powerUp.update(4.9f);
+        assertTrue(powerUp.isActive(), "should still be active just before its duration elapses");
 
-        manager.update(0.2f); // crosses the 5s duration
-        assertFalse(manager.isActive());
+        powerUp.update(0.2f); // crosses the 5s duration
+        assertFalse(powerUp.isActive());
         assertEquals(normalMass, ballBody.getMass(), 0.0001f, "mass must revert to normal once the power-up expires");
     }
 
     @Test
     void resetForcesInactiveAndNormalMassImmediately() {
-        manager.activate();
-        manager.reset();
+        powerUp.activate();
+        powerUp.reset();
 
-        assertFalse(manager.isActive());
+        assertFalse(powerUp.isActive());
         assertEquals(normalMass, ballBody.getMass(), 0.0001f);
     }
 
     @Test
     void reactivatingWhileActiveRefreshesDuration() {
-        manager.activate();
-        manager.update(4f);
-        manager.activate(); // picked up again before the first one expired
-        manager.update(4f); // would have expired the first activation, not the refreshed one
+        powerUp.activate();
+        powerUp.update(4f);
+        powerUp.activate(); // picked up again before the first one expired
+        powerUp.update(4f); // would have expired the first activation, not the refreshed one
 
-        assertTrue(manager.isActive());
+        assertTrue(powerUp.isActive());
     }
 }

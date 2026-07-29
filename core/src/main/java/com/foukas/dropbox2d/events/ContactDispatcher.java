@@ -6,16 +6,20 @@ import com.badlogic.gdx.physics.box2d.ContactImpulse;
 import com.badlogic.gdx.physics.box2d.ContactListener;
 import com.badlogic.gdx.physics.box2d.Fixture;
 import com.badlogic.gdx.physics.box2d.Manifold;
+import com.badlogic.gdx.physics.box2d.PolygonShape;
 import com.foukas.dropbox2d.physics.DestructiblePlatform;
 
 /** Box2D's own contact callback, wrapped to dispatch typed events instead of
  * mutating game state directly. Fixture user-data tagging convention:
  * "ball", "platform" (solid, permanent), "weakPlatform" (breakable),
- * "powerUp" (sensor pickup). Every event here is dispatched once, from the
- * contact that triggered it -- nothing tracks ongoing "is touching" state,
- * so destroying a body afterward (which this class never does directly --
- * see DestructiblePlatform's class comment) never leaves anything stale. */
+ * "powerUp:&lt;type&gt;" (sensor pickup, colon-delimited type tag). Every
+ * event here is dispatched once, from the contact that triggered it --
+ * nothing tracks ongoing "is touching" state, so destroying a body
+ * afterward (which this class never does directly -- see
+ * DestructiblePlatform's class comment) never leaves anything stale. */
 public class ContactDispatcher implements ContactListener {
+    private static final String POWERUP_PREFIX = "powerUp:";
+
     private final GameEventBus bus;
 
     public ContactDispatcher(GameEventBus bus) {
@@ -31,9 +35,10 @@ public class ContactDispatcher implements ContactListener {
             bus.dispatch(new BallTouchedPlatform());
         }
 
-        Body powerUpBody = ballVsTaggedBody(a, b, "powerUp");
-        if (powerUpBody != null) {
-            bus.dispatch(new PowerUpCollected(powerUpBody));
+        String powerUpTag = ballVsTaggedPrefix(a, b, POWERUP_PREFIX);
+        if (powerUpTag != null) {
+            Body pickupBody = ballVsTaggedBody(a, b, powerUpTag);
+            bus.dispatch(new PowerUpCollected(pickupBody, powerUpTag.substring(POWERUP_PREFIX.length())));
         }
     }
 
@@ -41,30 +46,42 @@ public class ContactDispatcher implements ContactListener {
     public void endContact(Contact contact) {
     }
 
+    /** Decided BEFORE the collision solver runs, not after: if a weak
+     * platform should break, disabling the contact here means Box2D skips
+     * collision response entirely for this step -- the ball passes
+     * through with no bounce, instead of bouncing (like postSolve-based
+     * detection did) and only breaking a step late. See
+     * DestructiblePlatform's class comment for why momentum was chosen
+     * over resolved impulse. */
     @Override
     public void preSolve(Contact contact, Manifold oldManifold) {
-    }
-
-    @Override
-    public void postSolve(Contact contact, ContactImpulse impulse) {
         Fixture a = contact.getFixtureA();
         Fixture b = contact.getFixtureB();
 
         Body weakPlatformBody = ballVsTaggedBody(a, b, "weakPlatform");
-        if (weakPlatformBody != null) {
-            float magnitude = maxNormalImpulse(impulse);
-            if (DestructiblePlatform.shouldBreak(magnitude)) {
-                bus.dispatch(new PlatformDestroyed(weakPlatformBody, weakPlatformBody.getPosition().x, weakPlatformBody.getPosition().y));
-            }
+        if (weakPlatformBody == null) {
+            return;
+        }
+
+        Body ballBody = "ball".equals(a.getUserData()) ? a.getBody() : b.getBody();
+        float momentum = ballBody.getMass() * ballBody.getLinearVelocity().len();
+
+        if (DestructiblePlatform.shouldBreak(momentum)) {
+            contact.setEnabled(false);
+            float width = platformWidth(weakPlatformBody);
+            bus.dispatch(new PlatformDestroyed(weakPlatformBody, weakPlatformBody.getPosition().x, weakPlatformBody.getPosition().y, width));
         }
     }
 
-    private float maxNormalImpulse(ContactImpulse impulse) {
-        float max = 0f;
-        for (float value : impulse.getNormalImpulses()) {
-            max = Math.max(max, value);
-        }
-        return max;
+    @Override
+    public void postSolve(Contact contact, ContactImpulse impulse) {
+    }
+
+    private float platformWidth(Body platformBody) {
+        PolygonShape shape = (PolygonShape) platformBody.getFixtureList().get(0).getShape();
+        com.badlogic.gdx.math.Vector2 v = new com.badlogic.gdx.math.Vector2();
+        shape.getVertex(0, v);
+        return Math.abs(v.x) * 2f;
     }
 
     private boolean isBallVs(Fixture a, Fixture b, String tag) {
@@ -83,6 +100,21 @@ public class ContactDispatcher implements ContactListener {
         }
         if ("ball".equals(ub) && tag.equals(ua)) {
             return a.getBody();
+        }
+        return null;
+    }
+
+    /** Returns the non-ball fixture's userData string if this is a
+     * ball-vs-tagged-prefix contact (e.g. "powerUp:wreckingBall" matches
+     * prefix "powerUp:"), otherwise null. */
+    private String ballVsTaggedPrefix(Fixture a, Fixture b, String prefix) {
+        Object ua = a.getUserData();
+        Object ub = b.getUserData();
+        if ("ball".equals(ua) && ub instanceof String && ((String) ub).startsWith(prefix)) {
+            return (String) ub;
+        }
+        if ("ball".equals(ub) && ua instanceof String && ((String) ua).startsWith(prefix)) {
+            return (String) ua;
         }
         return null;
     }

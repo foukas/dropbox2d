@@ -21,8 +21,14 @@ import java.util.List;
 public class DebrisManager {
     private static final float DEBRIS_LIFETIME = 3f;
     private static final float DEBRIS_SIZE = 0.15f;
-    private static final int DEBRIS_PER_BREAK = 4;
     private static final float DEBRIS_SPEED = 4f;
+
+    // Fragment count scales with the broken segment's width instead of a
+    // fixed count -- a sliver of platform shouldn't explode into the same
+    // amount of debris as a nearly-full-row chunk.
+    private static final float WIDTH_PER_FRAGMENT = 0.6f;
+    private static final int MIN_DEBRIS = 3;
+    private static final int MAX_DEBRIS = 10;
 
     private final World world;
     private final List<Fragment> fragments = new ArrayList<>();
@@ -31,11 +37,13 @@ public class DebrisManager {
         this.world = world;
     }
 
-    public void spawnDebris(float x, float y) {
-        for (int i = 0; i < DEBRIS_PER_BREAK; i++) {
+    public void spawnDebris(float x, float y, float platformWidth) {
+        int count = fragmentCountForWidth(platformWidth);
+        float spread = Math.max(0.3f, platformWidth / 2f);
+        for (int i = 0; i < count; i++) {
             BodyDef bodyDef = new BodyDef();
             bodyDef.type = BodyDef.BodyType.DynamicBody;
-            bodyDef.position.set(x + MathUtils.random(-0.3f, 0.3f), y);
+            bodyDef.position.set(x + MathUtils.random(-spread, spread), y);
             Body body = world.createBody(bodyDef);
 
             PolygonShape shape = new PolygonShape();
@@ -81,6 +89,11 @@ public class DebrisManager {
 
     public int count() {
         return fragments.size();
+    }
+
+    static int fragmentCountForWidth(float platformWidth) {
+        int raw = Math.round(platformWidth / WIDTH_PER_FRAGMENT);
+        return MathUtils.clamp(raw, MIN_DEBRIS, MAX_DEBRIS);
     }
 
     public void clear() {

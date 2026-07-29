@@ -8,17 +8,17 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 class DestructiblePlatformTest {
 
     @Test
-    void impulseBelowThresholdDoesNotBreak() {
+    void momentumBelowThresholdDoesNotBreak() {
         assertFalse(DestructiblePlatform.shouldBreak(5f, 8f));
     }
 
     @Test
-    void impulseAtThresholdBreaks() {
+    void momentumAtThresholdBreaks() {
         assertTrue(DestructiblePlatform.shouldBreak(8f, 8f));
     }
 
     @Test
-    void impulseAboveThresholdBreaks() {
+    void momentumAboveThresholdBreaks() {
         assertTrue(DestructiblePlatform.shouldBreak(20f, 8f));
     }
 
