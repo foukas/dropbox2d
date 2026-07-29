@@ -9,36 +9,45 @@ import com.badlogic.gdx.graphics.g2d.BitmapFont;
 import com.badlogic.gdx.graphics.g2d.SpriteBatch;
 import com.badlogic.gdx.graphics.glutils.ShapeRenderer;
 import com.badlogic.gdx.math.MathUtils;
+import com.badlogic.gdx.math.Vector2;
 import com.badlogic.gdx.physics.box2d.Box2D;
 import com.badlogic.gdx.physics.box2d.Body;
 import com.badlogic.gdx.physics.box2d.BodyDef;
+import com.badlogic.gdx.physics.box2d.CircleShape;
 import com.badlogic.gdx.physics.box2d.Fixture;
 import com.badlogic.gdx.physics.box2d.FixtureDef;
 import com.badlogic.gdx.physics.box2d.PolygonShape;
 import com.badlogic.gdx.physics.box2d.World;
-import com.badlogic.gdx.physics.box2d.CircleShape;
 import com.badlogic.gdx.utils.viewport.FitViewport;
 import com.badlogic.gdx.utils.viewport.Viewport;
 import com.foukas.dropbox2d.events.BallOffTop;
 import com.foukas.dropbox2d.events.ContactDispatcher;
+import com.foukas.dropbox2d.events.GameEvent;
 import com.foukas.dropbox2d.events.GameEventBus;
+import com.foukas.dropbox2d.events.GameEventListener;
 import com.foukas.dropbox2d.events.GapPassed;
+import com.foukas.dropbox2d.events.PlatformDestroyed;
+import com.foukas.dropbox2d.events.PowerUpCollected;
 import com.foukas.dropbox2d.generation.GapReachabilityValidator;
+import com.foukas.dropbox2d.generation.PlatformType;
+import com.foukas.dropbox2d.physics.DebrisManager;
 import com.foukas.dropbox2d.physics.PhysicsNaNGuard;
+import com.foukas.dropbox2d.powerups.WreckingBallManager;
 
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.List;
 
 /**
- * Post-Validation Hardening applied: event-driven ContactDispatcher +
- * GameEventBus (score/game-over logic are independent subscribers, not
- * directly mutated from here), a pure GapReachabilityValidator gating the
- * procedural generator, and a post-step PhysicsNaNGuard on the ball body.
- * Approach C's destructible platforms/power-ups build on this foundation
- * by adding new event types and fixture tags, not by rewriting this class.
+ * Approach C built on the Post-Validation Hardening foundation: destructible
+ * weak platforms (fixture removal, break-threshold driven by real Box2D
+ * contact impulse) and the wrecking-ball power-up (a real density change,
+ * not a scripted override -- see WreckingBallManager). PlatformDestroyed
+ * and PowerUpCollected are new event types added to the existing bus;
+ * nothing about the collision/scoring/game-over code from Hardening had to
+ * change to accommodate them.
  */
-public class DropGame extends ApplicationAdapter {
+public class DropGame extends ApplicationAdapter implements GameEventListener {
 
     // ----- World tuning (placeholder values -- expected to be re-tuned by feel) -----
     private static final float WORLD_WIDTH = 9f;
@@ -60,6 +69,10 @@ public class DropGame extends ApplicationAdapter {
     private static final float GAP_MAX_WIDTH = 3.4f;
     private static final int MAX_GENERATION_ATTEMPTS = 20;
 
+    private static final float WEAK_PLATFORM_CHANCE = 0.35f;
+    private static final float POWERUP_SPAWN_CHANCE = 0.15f;
+    private static final float POWERUP_RADIUS = 0.25f;
+
     private static final float SCROLL_BASE_SPEED = 1.6f;
     private static final float SCROLL_RAMP_PER_METER = 0.02f;
     private static final float SCROLL_MAX_SPEED = 6.5f;
@@ -78,6 +91,12 @@ public class DropGame extends ApplicationAdapter {
     private static final float WALL_THICKNESS = 0.3f;
     private static final float WALL_HEIGHT = 60f;
 
+    private static final Color NORMAL_PLATFORM_COLOR = new Color(0.55f, 0.55f, 0.65f, 1f);
+    private static final Color WEAK_PLATFORM_COLOR = new Color(0.65f, 0.5f, 0.3f, 1f);
+    private static final Color DEBRIS_COLOR = new Color(0.5f, 0.4f, 0.35f, 1f);
+    private static final Color POWERUP_COLOR = new Color(1f, 0.84f, 0f, 1f);
+    private static final Color WRECKING_BALL_COLOR = new Color(0.55f, 0.1f, 0.1f, 1f);
+
     // ----- Runtime state -----
     private World world;
     private Body ballBody;
@@ -93,9 +112,13 @@ public class DropGame extends ApplicationAdapter {
     private GameEventBus eventBus;
     private ScoreManager scoreManager;
     private GameOverController gameOverController;
+    private DebrisManager debrisManager;
+    private WreckingBallManager wreckingBallManager;
 
     private final List<PlatformRow> rows = new ArrayList<>();
     private final ArrayDeque<PlatformRow> pendingScoreRows = new ArrayDeque<>();
+    private final List<PlatformDestroyed> pendingPlatformDestructions = new ArrayList<>();
+    private final List<PowerUpCollected> pendingPowerUpPickups = new ArrayList<>();
     private float lowestGeneratedY;
     private float spawnY;
 
@@ -125,22 +148,27 @@ public class DropGame extends ApplicationAdapter {
         if (world != null) {
             world.dispose();
         }
-        world = new World(new com.badlogic.gdx.math.Vector2(0, GRAVITY_Y), true);
+        world = new World(new Vector2(0, GRAVITY_Y), true);
 
         eventBus = new GameEventBus();
         scoreManager = new ScoreManager();
         gameOverController = new GameOverController();
         eventBus.subscribe(scoreManager);
         eventBus.subscribe(gameOverController);
+        eventBus.subscribe(this);
         world.setContactListener(new ContactDispatcher(eventBus));
 
         rows.clear();
         pendingScoreRows.clear();
+        pendingPlatformDestructions.clear();
+        pendingPowerUpPickups.clear();
         depthScore = 0f;
         physicsAccumulator = 0f;
 
         spawnY = 0f;
         ballBody = createBall(WORLD_WIDTH / 2f, spawnY + 1.5f);
+        wreckingBallManager = new WreckingBallManager(ballBody);
+        debrisManager = new DebrisManager(world);
 
         camera.position.set(WORLD_WIDTH / 2f, spawnY, 0f);
         camera.update();
@@ -153,6 +181,20 @@ public class DropGame extends ApplicationAdapter {
         // ground ahead of the ball.
         for (int i = 0; i < 8; i++) {
             spawnNextRow();
+        }
+    }
+
+    @Override
+    public void onEvent(GameEvent event) {
+        // DropGame only reacts to the two event types that require Box2D
+        // world mutation, which can't happen from inside the collision
+        // callback that produced the event -- both are queued here and
+        // drained after world.step() completes. GapPassed/BallOffTop/
+        // BallTouchedPlatform are handled by ScoreManager/GameOverController.
+        if (event instanceof PlatformDestroyed destroyed) {
+            pendingPlatformDestructions.add(destroyed);
+        } else if (event instanceof PowerUpCollected collected) {
+            pendingPowerUpPickups.add(collected);
         }
     }
 
@@ -199,11 +241,12 @@ public class DropGame extends ApplicationAdapter {
         return body;
     }
 
-    /** Procedural single-gap platform generator, now gated by
-     * GapReachabilityValidator: a proposed gap is retried (never patched
-     * or fudged) until it passes the worst-case reachability check, or
-     * MAX_GENERATION_ATTEMPTS is hit -- the last attempt is accepted
-     * regardless, so generation can never hang. */
+    /** Procedural single-gap platform generator, gated by
+     * GapReachabilityValidator. Each flanking segment independently rolls
+     * NORMAL vs WEAK -- weak segments never replace the gap itself, only
+     * add an optional shortcut alongside it (see PlatformType's class
+     * comment for why that resolves the reachability-risk open question).
+     * A power-up pickup occasionally spawns centered in the gap. */
     private void spawnNextRow() {
         float rowY = lowestGeneratedY;
         lowestGeneratedY -= ROW_SPACING;
@@ -234,19 +277,27 @@ public class DropGame extends ApplicationAdapter {
 
         Body left = null;
         if (gapStart > 0.1f) {
-            left = createPlatformSegment(0f, gapStart, rowY);
+            PlatformType type = MathUtils.random() < WEAK_PLATFORM_CHANCE ? PlatformType.WEAK : PlatformType.NORMAL;
+            left = createPlatformSegment(0f, gapStart, rowY, type);
         }
         Body right = null;
         if (WORLD_WIDTH - gapEnd > 0.1f) {
-            right = createPlatformSegment(gapEnd, WORLD_WIDTH, rowY);
+            PlatformType type = MathUtils.random() < WEAK_PLATFORM_CHANCE ? PlatformType.WEAK : PlatformType.NORMAL;
+            right = createPlatformSegment(gapEnd, WORLD_WIDTH, rowY, type);
         }
 
-        PlatformRow row = new PlatformRow(rowY, left, right);
+        Body powerUp = null;
+        if (MathUtils.random() < POWERUP_SPAWN_CHANCE) {
+            float pickupX = gapStart + gapWidth / 2f;
+            powerUp = createPowerUpPickup(pickupX, rowY);
+        }
+
+        PlatformRow row = new PlatformRow(rowY, left, right, powerUp);
         rows.add(row);
         pendingScoreRows.addLast(row);
     }
 
-    private Body createPlatformSegment(float xStart, float xEnd, float y) {
+    private Body createPlatformSegment(float xStart, float xEnd, float y, PlatformType type) {
         float width = xEnd - xStart;
         float centerX = xStart + width / 2f;
 
@@ -263,7 +314,26 @@ public class DropGame extends ApplicationAdapter {
         fixtureDef.friction = 0.6f;
         fixtureDef.restitution = 0f;
         Fixture fixture = body.createFixture(fixtureDef);
-        fixture.setUserData("platform");
+        fixture.setUserData(type == PlatformType.WEAK ? "weakPlatform" : "platform");
+        shape.dispose();
+
+        return body;
+    }
+
+    private Body createPowerUpPickup(float x, float y) {
+        BodyDef bodyDef = new BodyDef();
+        bodyDef.type = BodyDef.BodyType.StaticBody;
+        bodyDef.position.set(x, y);
+        Body body = world.createBody(bodyDef);
+
+        CircleShape shape = new CircleShape();
+        shape.setRadius(POWERUP_RADIUS);
+
+        FixtureDef fixtureDef = new FixtureDef();
+        fixtureDef.shape = shape;
+        fixtureDef.isSensor = true;
+        Fixture fixture = body.createFixture(fixtureDef);
+        fixture.setUserData("powerUp");
         shape.dispose();
 
         return body;
@@ -276,6 +346,8 @@ public class DropGame extends ApplicationAdapter {
         if (!gameOverController.isGameOver()) {
             handleInput(delta);
             stepPhysics(delta);
+            drainPendingWorldMutations();
+            wreckingBallManager.update(delta);
             updateCameraAndScroll(delta);
             manageRows();
             checkGameOver();
@@ -301,7 +373,7 @@ public class DropGame extends ApplicationAdapter {
 
         // Clamp horizontal speed directly -- no separate guard abstraction,
         // just inline clamping, consistent with the "direct" scope decision.
-        com.badlogic.gdx.math.Vector2 vel = ballBody.getLinearVelocity();
+        Vector2 vel = ballBody.getLinearVelocity();
         if (Math.abs(vel.x) > MAX_HORIZONTAL_SPEED) {
             ballBody.setLinearVelocity(MathUtils.clamp(vel.x, -MAX_HORIZONTAL_SPEED, MAX_HORIZONTAL_SPEED), vel.y);
         }
@@ -313,6 +385,34 @@ public class DropGame extends ApplicationAdapter {
             world.step(FIXED_TIMESTEP, 6, 2);
             physicsAccumulator -= FIXED_TIMESTEP;
             PhysicsNaNGuard.checkAndFix(ballBody, WORLD_WIDTH / 2f, camera.position.y);
+        }
+    }
+
+    /** Box2D forbids creating/destroying bodies from inside a collision
+     * callback -- ContactDispatcher only ever dispatches events during
+     * those callbacks, so the actual world mutation happens here, right
+     * after world.step() returns and the world is unlocked. */
+    private void drainPendingWorldMutations() {
+        for (PlatformDestroyed destroyed : pendingPlatformDestructions) {
+            removeBodyFromRows(destroyed.body());
+            world.destroyBody(destroyed.body());
+            debrisManager.spawnDebris(destroyed.x(), destroyed.y());
+        }
+        pendingPlatformDestructions.clear();
+
+        for (PowerUpCollected collected : pendingPowerUpPickups) {
+            removeBodyFromRows(collected.body());
+            world.destroyBody(collected.body());
+            wreckingBallManager.activate();
+        }
+        pendingPowerUpPickups.clear();
+    }
+
+    private void removeBodyFromRows(Body body) {
+        for (PlatformRow row : rows) {
+            if (row.left == body) row.left = null;
+            if (row.right == body) row.right = null;
+            if (row.powerUp == body) row.powerUp = null;
         }
     }
 
@@ -337,6 +437,9 @@ public class DropGame extends ApplicationAdapter {
         // visible range, regardless of how far the session has scrolled.
         leftWall.setTransform(leftWall.getPosition().x, camera.position.y, 0f);
         rightWall.setTransform(rightWall.getPosition().x, camera.position.y, 0f);
+
+        float recycleAboveY = camera.position.y + WORLD_HEIGHT;
+        debrisManager.update(delta, recycleAboveY);
     }
 
     private void manageRows() {
@@ -366,6 +469,7 @@ public class DropGame extends ApplicationAdapter {
         for (PlatformRow row : toRemove) {
             if (row.left != null) world.destroyBody(row.left);
             if (row.right != null) world.destroyBody(row.right);
+            if (row.powerUp != null) world.destroyBody(row.powerUp);
             rows.remove(row);
         }
     }
@@ -384,38 +488,65 @@ public class DropGame extends ApplicationAdapter {
         shapeRenderer.setProjectionMatrix(camera.combined);
         shapeRenderer.begin(ShapeRenderer.ShapeType.Filled);
 
-        shapeRenderer.setColor(0.55f, 0.55f, 0.65f, 1f);
         for (PlatformRow row : rows) {
-            drawBody(row.left);
-            drawBody(row.right);
+            drawPlatform(row.left);
+            drawPlatform(row.right);
+            drawPowerUp(row.powerUp);
+        }
+
+        shapeRenderer.setColor(DEBRIS_COLOR);
+        for (Body debris : debrisManager.getBodies()) {
+            drawDebris(debris);
         }
 
         boolean gameOver = gameOverController.isGameOver();
-        shapeRenderer.setColor(gameOver ? Color.RED : Color.ORANGE);
+        Color ballColor = gameOver ? Color.RED : (wreckingBallManager.isActive() ? WRECKING_BALL_COLOR : Color.ORANGE);
+        shapeRenderer.setColor(ballColor);
         shapeRenderer.circle(ballBody.getPosition().x, ballBody.getPosition().y, BALL_RADIUS, 24);
 
         shapeRenderer.end();
 
         batch.setProjectionMatrix(hudCamera.combined);
         batch.begin();
-        String label = "Depth: " + (int) depthScore + "m   Combo: " + scoreManager.getComboChain();
-        if (gameOver) {
-            label += "\nGAME OVER -- tap to retry";
+        StringBuilder label = new StringBuilder("Depth: ").append((int) depthScore)
+            .append("m   Combo: ").append(scoreManager.getComboChain());
+        if (wreckingBallManager.isActive()) {
+            label.append(String.format("\nWRECKING BALL: %.1fs", wreckingBallManager.getRemaining()));
         }
-        font.draw(batch, label, 20f, Gdx.graphics.getHeight() - 20f);
+        if (gameOver) {
+            label.append("\nGAME OVER -- tap to retry");
+        }
+        font.draw(batch, label.toString(), 20f, Gdx.graphics.getHeight() - 20f);
         batch.end();
     }
 
-    private void drawBody(Body body) {
+    private void drawPlatform(Body body) {
         if (body == null) return;
-        PolygonShape shape = (PolygonShape) body.getFixtureList().get(0).getShape();
-        float hx = 0f;
-        com.badlogic.gdx.math.Vector2 v = new com.badlogic.gdx.math.Vector2();
+        Fixture fixture = body.getFixtureList().get(0);
+        boolean weak = "weakPlatform".equals(fixture.getUserData());
+        shapeRenderer.setColor(weak ? WEAK_PLATFORM_COLOR : NORMAL_PLATFORM_COLOR);
+
+        PolygonShape shape = (PolygonShape) fixture.getShape();
+        Vector2 v = new Vector2();
         shape.getVertex(0, v);
-        hx = Math.abs(v.x);
+        float hx = Math.abs(v.x);
         float x = body.getPosition().x;
         float y = body.getPosition().y;
         shapeRenderer.rect(x - hx, y - PLATFORM_THICKNESS / 2f, hx * 2f, PLATFORM_THICKNESS);
+    }
+
+    private void drawPowerUp(Body body) {
+        if (body == null) return;
+        shapeRenderer.setColor(POWERUP_COLOR);
+        shapeRenderer.circle(body.getPosition().x, body.getPosition().y, POWERUP_RADIUS, 16);
+    }
+
+    private void drawDebris(Body body) {
+        float size = 0.15f;
+        float x = body.getPosition().x;
+        float y = body.getPosition().y;
+        float rotationDegrees = body.getAngle() * MathUtils.radDeg;
+        shapeRenderer.rect(x - size / 2f, y - size / 2f, size / 2f, size / 2f, size, size, 1f, 1f, rotationDegrees);
     }
 
     @Override
@@ -447,13 +578,15 @@ public class DropGame extends ApplicationAdapter {
 
     private static class PlatformRow {
         final float y;
-        final Body left;
-        final Body right;
+        Body left;
+        Body right;
+        Body powerUp;
 
-        PlatformRow(float y, Body left, Body right) {
+        PlatformRow(float y, Body left, Body right, Body powerUp) {
             this.y = y;
             this.left = left;
             this.right = right;
+            this.powerUp = powerUp;
         }
     }
 }

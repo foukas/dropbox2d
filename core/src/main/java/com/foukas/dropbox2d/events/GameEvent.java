@@ -6,5 +6,5 @@ package com.foukas.dropbox2d.events;
  * that produces the events below -- that's the whole point of routing
  * everything through this sealed interface instead of direct field mutation.
  */
-public sealed interface GameEvent permits GapPassed, BallOffTop, BallTouchedPlatform {
+public sealed interface GameEvent permits GapPassed, BallOffTop, BallTouchedPlatform, PlatformDestroyed, PowerUpCollected {
 }
