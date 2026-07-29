@@ -9,6 +9,7 @@ import com.badlogic.gdx.graphics.g2d.BitmapFont;
 import com.badlogic.gdx.graphics.g2d.SpriteBatch;
 import com.badlogic.gdx.graphics.glutils.ShapeRenderer;
 import com.badlogic.gdx.math.MathUtils;
+import com.badlogic.gdx.math.Matrix4;
 import com.badlogic.gdx.math.Vector2;
 import com.badlogic.gdx.physics.box2d.Box2D;
 import com.badlogic.gdx.physics.box2d.Body;
@@ -28,12 +29,16 @@ import com.foukas.dropbox2d.events.GameEventListener;
 import com.foukas.dropbox2d.events.GapPassed;
 import com.foukas.dropbox2d.events.PlatformDestroyed;
 import com.foukas.dropbox2d.events.PowerUpCollected;
+import com.foukas.dropbox2d.fx.ParticleSystem;
+import com.foukas.dropbox2d.fx.ScreenShake;
 import com.foukas.dropbox2d.generation.GapReachabilityValidator;
 import com.foukas.dropbox2d.generation.PlatformType;
 import com.foukas.dropbox2d.physics.DebrisManager;
 import com.foukas.dropbox2d.physics.PhysicsNaNGuard;
 import com.foukas.dropbox2d.powerups.PowerUpManager;
 import com.foukas.dropbox2d.powerups.WreckingBallPowerUp;
+import com.foukas.dropbox2d.progression.PlayerProgress;
+import com.foukas.dropbox2d.progression.SkinTier;
 
 import java.util.ArrayDeque;
 import java.util.ArrayList;
@@ -102,6 +107,19 @@ public class DropGame extends ApplicationAdapter implements GameEventListener {
     private static final Color DEBRIS_COLOR = new Color(0.5f, 0.4f, 0.35f, 1f);
     private static final Color POWERUP_COLOR = new Color(1f, 0.84f, 0f, 1f);
     private static final Color WRECKING_BALL_COLOR = new Color(0.55f, 0.1f, 0.1f, 1f);
+    // Wide contrast on purpose -- the first attempt (0.14 vs 0.04) was
+    // nearly indistinguishable from the old flat clear color at a glance.
+    private static final Color BG_TOP_COLOR = new Color(0.32f, 0.36f, 0.52f, 1f);
+    private static final Color BG_BOTTOM_COLOR = new Color(0.02f, 0.02f, 0.04f, 1f);
+    private static final Color COMBO_TEXT_COLOR = new Color(1f, 0.85f, 0.2f, 1f);
+
+    // B2/B4 juice tuning
+    private static final float COMBO_PULSE_DURATION = 0.3f;
+    private static final float COMBO_SHAKE_DURATION = 0.15f;
+    private static final float COMBO_SHAKE_MAGNITUDE = 0.08f;
+    private static final float BREAK_SHAKE_DURATION = 0.2f;
+    private static final float BREAK_SHAKE_MAGNITUDE = 0.12f;
+    private static final float TOAST_DURATION = 2.5f;
 
     // ----- Runtime state -----
     private World world;
@@ -120,6 +138,17 @@ public class DropGame extends ApplicationAdapter implements GameEventListener {
     private GameOverController gameOverController;
     private DebrisManager debrisManager;
     private PowerUpManager powerUpManager;
+
+    // B2/B4: persistent across runs (and, for playerProgress, across app
+    // sessions) -- created once in create(), not per-run in startNewRun().
+    private PlayerProgress playerProgress;
+    private ScreenShake screenShake;
+    private ParticleSystem particleSystem;
+    private SkinTier highestAnnouncedTier;
+    private int lastComboChain;
+    private String toastText;
+    private float toastTimer;
+    private float comboPulseTimer;
 
     private final List<PlatformRow> rows = new ArrayList<>();
     private final ArrayDeque<PlatformRow> pendingScoreRows = new ArrayDeque<>();
@@ -147,6 +176,14 @@ public class DropGame extends ApplicationAdapter implements GameEventListener {
         font.setColor(Color.WHITE);
         updateFontScale();
 
+        playerProgress = new PlayerProgress();
+        playerProgress.recordSessionStart(System.currentTimeMillis());
+        screenShake = new ScreenShake();
+        particleSystem = new ParticleSystem();
+        // Tiers already earned in prior sessions shouldn't re-announce on
+        // every app open -- only tiers crossed from here on are new news.
+        highestAnnouncedTier = SkinTier.forDepth(playerProgress.getBestDepth());
+
         startNewRun();
     }
 
@@ -170,6 +207,12 @@ public class DropGame extends ApplicationAdapter implements GameEventListener {
         pendingPowerUpPickups.clear();
         depthScore = 0f;
         physicsAccumulator = 0f;
+        lastComboChain = 0;
+        comboPulseTimer = 0f;
+        toastTimer = 0f;
+        if (particleSystem != null) {
+            particleSystem.clear();
+        }
 
         spawnY = 0f;
         ballBody = createBall(WORLD_WIDTH / 2f, spawnY + 1.5f);
@@ -193,15 +236,27 @@ public class DropGame extends ApplicationAdapter implements GameEventListener {
 
     @Override
     public void onEvent(GameEvent event) {
-        // DropGame only reacts to the two event types that require Box2D
-        // world mutation, which can't happen from inside the collision
-        // callback that produced the event -- both are queued here and
-        // drained after world.step() completes. GapPassed/BallOffTop/
-        // BallTouchedPlatform are handled by ScoreManager/GameOverController.
+        // PlatformDestroyed/PowerUpCollected require Box2D world mutation,
+        // which can't happen from inside the collision callback that
+        // produced the event -- both are queued here and drained after
+        // world.step() completes. GapPassed/BallTouchedPlatform are fully
+        // handled by ScoreManager. BallOffTop's game-over flag is handled
+        // by GameOverController; this class additionally reacts to it to
+        // persist a new best, since that's a one-time side effect tied to
+        // the exact moment of the transition, not something either of
+        // those two focused subscribers should also own.
         if (event instanceof PlatformDestroyed destroyed) {
             pendingPlatformDestructions.add(destroyed);
+            screenShake.trigger(BREAK_SHAKE_DURATION, BREAK_SHAKE_MAGNITUDE);
+            int particleCount = MathUtils.clamp(Math.round(destroyed.width() * 2f), 4, 14);
+            particleSystem.burst(destroyed.x(), destroyed.y(), DEBRIS_COLOR, particleCount);
         } else if (event instanceof PowerUpCollected collected) {
             pendingPowerUpPickups.add(collected);
+        } else if (event instanceof BallOffTop) {
+            if (playerProgress.reportDepth(depthScore)) {
+                toastText = "NEW BEST!";
+                toastTimer = TOAST_DURATION;
+            }
         }
     }
 
@@ -375,11 +430,50 @@ public class DropGame extends ApplicationAdapter implements GameEventListener {
             updateCameraAndScroll(delta);
             manageRows();
             checkGameOver();
+            updateProgressionAndFx(delta);
         } else if (Gdx.input.justTouched()) {
             startNewRun();
         }
 
         draw();
+    }
+
+    /** Combo-multiplier pulse/shake/particles on a combo increase, live
+     * skin-tier unlock detection, and toast/FX timers. Runs every active
+     * gameplay frame -- unlike the world-mutation queue, none of this
+     * touches Box2D, so there's no callback-timing constraint here. */
+    private void updateProgressionAndFx(float delta) {
+        int currentCombo = scoreManager.getComboChain();
+        if (currentCombo > lastComboChain) {
+            comboPulseTimer = COMBO_PULSE_DURATION;
+            if (currentCombo >= 2) {
+                screenShake.trigger(COMBO_SHAKE_DURATION, COMBO_SHAKE_MAGNITUDE);
+                int particleCount = Math.min(6 + currentCombo, 16);
+                particleSystem.burst(ballBody.getPosition().x, ballBody.getPosition().y, currentSkinTier().getColor(), particleCount);
+            }
+        }
+        lastComboChain = currentCombo;
+
+        float effectiveDepth = Math.max(playerProgress.getBestDepth(), depthScore);
+        SkinTier currentTier = SkinTier.forDepth(effectiveDepth);
+        if (currentTier.ordinal() > highestAnnouncedTier.ordinal()) {
+            highestAnnouncedTier = currentTier;
+            toastText = "UNLOCKED: " + currentTier.getDisplayName().toUpperCase();
+            toastTimer = TOAST_DURATION;
+        }
+
+        screenShake.update(delta);
+        particleSystem.update(delta);
+        if (comboPulseTimer > 0f) {
+            comboPulseTimer = Math.max(0f, comboPulseTimer - delta);
+        }
+        if (toastTimer > 0f) {
+            toastTimer = Math.max(0f, toastTimer - delta);
+        }
+    }
+
+    private SkinTier currentSkinTier() {
+        return SkinTier.forDepth(Math.max(playerProgress.getBestDepth(), depthScore));
     }
 
     private void handleInput(float delta) {
@@ -506,10 +600,21 @@ public class DropGame extends ApplicationAdapter implements GameEventListener {
     }
 
     private void draw() {
-        Gdx.gl.glClearColor(0.08f, 0.08f, 0.12f, 1f);
+        Gdx.gl.glClearColor(0f, 0f, 0f, 1f);
         Gdx.gl.glClear(GL20.GL_COLOR_BUFFER_BIT);
+        // Needed for particle fade-out and the ball highlight's alpha --
+        // solid shapes elsewhere use alpha=1 so this doesn't change how
+        // they look.
+        Gdx.gl.glEnable(GL20.GL_BLEND);
+        Gdx.gl.glBlendFunc(GL20.GL_SRC_ALPHA, GL20.GL_ONE_MINUS_SRC_ALPHA);
 
-        shapeRenderer.setProjectionMatrix(camera.combined);
+        drawBackground();
+
+        // Screen shake is applied only to this projection matrix, never to
+        // camera.position itself -- game logic (scroll, wall-tracking,
+        // catch-up) reads camera.position and must never see the jitter.
+        Matrix4 shakenProjection = camera.combined.cpy().translate(screenShake.getOffset().x, screenShake.getOffset().y, 0f);
+        shapeRenderer.setProjectionMatrix(shakenProjection);
         shapeRenderer.begin(ShapeRenderer.ShapeType.Filled);
 
         for (PlatformRow row : rows) {
@@ -523,32 +628,111 @@ public class DropGame extends ApplicationAdapter implements GameEventListener {
             drawDebris(debris);
         }
 
+        drawParticles();
+
         boolean gameOver = gameOverController.isGameOver();
-        Color ballColor = gameOver ? Color.RED : (powerUpManager.isActive() ? WRECKING_BALL_COLOR : Color.ORANGE);
+        Color ballColor = gameOver ? Color.RED : (powerUpManager.isActive() ? WRECKING_BALL_COLOR : currentSkinTier().getColor());
         shapeRenderer.setColor(ballColor);
         shapeRenderer.circle(ballBody.getPosition().x, ballBody.getPosition().y, BALL_RADIUS, 24);
+        drawBallHighlight(ballColor);
 
         shapeRenderer.end();
 
         batch.setProjectionMatrix(hudCamera.combined);
         batch.begin();
-        StringBuilder label = new StringBuilder("Depth: ").append((int) depthScore)
-            .append("m   Combo: ").append(scoreManager.getComboChain());
+        font.setColor(Color.WHITE);
+        StringBuilder label = new StringBuilder("Depth: ").append((int) depthScore).append("m");
         if (powerUpManager.isActive()) {
             label.append(String.format("\n%s: %.1fs", displayName(powerUpManager.getActiveType()), powerUpManager.getRemaining()));
         }
+        label.append(String.format("\nBest: %dm   Streak: %dd", (int) playerProgress.getBestDepth(), playerProgress.getStreak()));
         if (gameOver) {
             label.append("\nGAME OVER -- tap to retry");
         }
         font.draw(batch, label.toString(), 20f, Gdx.graphics.getHeight() - 20f);
+
+        drawComboMultiplier();
+        drawToast();
+
         batch.end();
+    }
+
+    private void drawBackground() {
+        shapeRenderer.setProjectionMatrix(hudCamera.combined);
+        shapeRenderer.begin(ShapeRenderer.ShapeType.Filled);
+        float w = Gdx.graphics.getWidth();
+        float h = Gdx.graphics.getHeight();
+        shapeRenderer.rect(0f, 0f, w, h, BG_BOTTOM_COLOR, BG_BOTTOM_COLOR, BG_TOP_COLOR, BG_TOP_COLOR);
+        shapeRenderer.end();
+    }
+
+    /** A small catchlight fixed to the ball's own rotating frame, not the
+     * world -- rotating it by the ball's actual Box2D angle (real physics
+     * rotation from rolling friction, not a cosmetic override) is what
+     * sells "this is a ball rolling" instead of "a circle sliding." */
+    private void drawBallHighlight(Color baseColor) {
+        Color highlight = baseColor.cpy().lerp(Color.WHITE, 0.75f);
+        highlight.a = 0.85f;
+        shapeRenderer.setColor(highlight);
+
+        float distance = BALL_RADIUS * 0.5f;
+        float angle = ballBody.getAngle();
+        // Rotate the local point (0, distance) -- the ball's "north pole"
+        // in its own unrotated frame -- by its current angle, so the dot
+        // sweeps around the ball's surface as it spins.
+        float worldOffsetX = -distance * MathUtils.sin(angle);
+        float worldOffsetY = distance * MathUtils.cos(angle);
+        float hx = ballBody.getPosition().x + worldOffsetX;
+        float hy = ballBody.getPosition().y + worldOffsetY;
+        shapeRenderer.circle(hx, hy, BALL_RADIUS * 0.16f, 10);
+    }
+
+    private void drawParticles() {
+        for (ParticleSystem.Particle particle : particleSystem.getParticles()) {
+            Color c = particle.color;
+            shapeRenderer.setColor(c.r, c.g, c.b, particle.lifeFraction());
+            float size = 0.08f * (0.5f + particle.lifeFraction());
+            shapeRenderer.circle(particle.x, particle.y, size, 8);
+        }
+    }
+
+    /** Distinct in every way from the regular HUD text -- color, size, and
+     * position -- so it reads as its own thing rather than "the same text
+     * as everything else." Always noticeably larger than the HUD label
+     * while a combo is active (restingBoost), with an extra pop layered on
+     * top right after each increment (the pulse envelope). */
+    private void drawComboMultiplier() {
+        int combo = scoreManager.getComboChain();
+        if (combo < 2) return;
+
+        float baseScale = font.getData().scaleX;
+        float restingBoost = 1.7f;
+        float pulseEnvelope = comboPulseTimer / COMBO_PULSE_DURATION; // 1 right after an increment -> 0
+        font.getData().setScale(baseScale * (restingBoost + 0.7f * pulseEnvelope));
+        font.setColor(COMBO_TEXT_COLOR);
+
+        float rightMargin = 20f;
+        float boxWidth = Gdx.graphics.getWidth() / 2f - rightMargin;
+        font.draw(batch, "x" + combo, Gdx.graphics.getWidth() / 2f, Gdx.graphics.getHeight() - 20f, boxWidth, com.badlogic.gdx.utils.Align.right, false);
+
+        font.setColor(Color.WHITE);
+        font.getData().setScale(baseScale);
+    }
+
+    private void drawToast() {
+        if (toastTimer <= 0f || toastText == null) return;
+        float alpha = Math.min(1f, toastTimer / 0.5f); // quick fade in the final half-second
+        font.setColor(1f, 1f, 1f, alpha);
+        font.draw(batch, toastText, 0f, Gdx.graphics.getHeight() * 0.7f, Gdx.graphics.getWidth(), com.badlogic.gdx.utils.Align.center, false);
+        font.setColor(Color.WHITE);
     }
 
     private void drawPlatform(Body body) {
         if (body == null) return;
         Fixture fixture = body.getFixtureList().get(0);
         boolean weak = "weakPlatform".equals(fixture.getUserData());
-        shapeRenderer.setColor(weak ? WEAK_PLATFORM_COLOR : NORMAL_PLATFORM_COLOR);
+        Color baseColor = weak ? WEAK_PLATFORM_COLOR : NORMAL_PLATFORM_COLOR;
+        shapeRenderer.setColor(baseColor);
 
         PolygonShape shape = (PolygonShape) fixture.getShape();
         Vector2 v = new Vector2();
@@ -557,6 +741,12 @@ public class DropGame extends ApplicationAdapter implements GameEventListener {
         float x = body.getPosition().x;
         float y = body.getPosition().y;
         shapeRenderer.rect(x - hx, y - PLATFORM_THICKNESS / 2f, hx * 2f, PLATFORM_THICKNESS);
+
+        // Thin lighter strip along the top edge -- cheap "lit from above" cue.
+        Color highlight = baseColor.cpy().lerp(Color.WHITE, 0.35f);
+        shapeRenderer.setColor(highlight);
+        float highlightThickness = PLATFORM_THICKNESS * 0.2f;
+        shapeRenderer.rect(x - hx, y + PLATFORM_THICKNESS / 2f - highlightThickness, hx * 2f, highlightThickness);
     }
 
     // Small type-tag -> display-name mapping so the HUD doesn't print raw
