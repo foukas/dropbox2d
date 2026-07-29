@@ -2,7 +2,6 @@ package com.foukas.dropbox2d;
 
 import com.badlogic.gdx.ApplicationAdapter;
 import com.badlogic.gdx.Gdx;
-import com.badlogic.gdx.Input;
 import com.badlogic.gdx.graphics.Color;
 import com.badlogic.gdx.graphics.GL20;
 import com.badlogic.gdx.graphics.OrthographicCamera;
@@ -13,30 +12,31 @@ import com.badlogic.gdx.math.MathUtils;
 import com.badlogic.gdx.physics.box2d.Box2D;
 import com.badlogic.gdx.physics.box2d.Body;
 import com.badlogic.gdx.physics.box2d.BodyDef;
-import com.badlogic.gdx.physics.box2d.Contact;
-import com.badlogic.gdx.physics.box2d.ContactImpulse;
-import com.badlogic.gdx.physics.box2d.ContactListener;
 import com.badlogic.gdx.physics.box2d.Fixture;
 import com.badlogic.gdx.physics.box2d.FixtureDef;
-import com.badlogic.gdx.physics.box2d.Manifold;
 import com.badlogic.gdx.physics.box2d.PolygonShape;
 import com.badlogic.gdx.physics.box2d.World;
 import com.badlogic.gdx.physics.box2d.CircleShape;
 import com.badlogic.gdx.utils.viewport.FitViewport;
 import com.badlogic.gdx.utils.viewport.Viewport;
+import com.foukas.dropbox2d.events.BallOffTop;
+import com.foukas.dropbox2d.events.ContactDispatcher;
+import com.foukas.dropbox2d.events.GameEventBus;
+import com.foukas.dropbox2d.events.GapPassed;
+import com.foukas.dropbox2d.generation.GapReachabilityValidator;
+import com.foukas.dropbox2d.physics.PhysicsNaNGuard;
 
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.List;
 
 /**
- * Approach A: bare-minimum core loop, built with no engineering rigor
- * beyond what's needed to test whether tap-steer + real Box2D physics
- * feels good. No InputProvider abstraction, no reachability validator,
- * no NaN guard, no event-dispatch system, no tests -- all of that is
- * deliberately deferred to a Post-Validation Hardening phase (see the
- * design doc) if this bet is confirmed. Direct tap input, direct
- * score/game-over logic, direct Box2D ContactListener usage.
+ * Post-Validation Hardening applied: event-driven ContactDispatcher +
+ * GameEventBus (score/game-over logic are independent subscribers, not
+ * directly mutated from here), a pure GapReachabilityValidator gating the
+ * procedural generator, and a post-step PhysicsNaNGuard on the ball body.
+ * Approach C's destructible platforms/power-ups build on this foundation
+ * by adding new event types and fixture tags, not by rewriting this class.
  */
 public class DropGame extends ApplicationAdapter {
 
@@ -58,6 +58,7 @@ public class DropGame extends ApplicationAdapter {
     private static final float PLATFORM_THICKNESS = 0.35f;
     private static final float GAP_MIN_WIDTH = 2.4f;
     private static final float GAP_MAX_WIDTH = 3.4f;
+    private static final int MAX_GENERATION_ATTEMPTS = 20;
 
     private static final float SCROLL_BASE_SPEED = 1.6f;
     private static final float SCROLL_RAMP_PER_METER = 0.02f;
@@ -89,15 +90,16 @@ public class DropGame extends ApplicationAdapter {
     private SpriteBatch batch;
     private BitmapFont font;
 
+    private GameEventBus eventBus;
+    private ScoreManager scoreManager;
+    private GameOverController gameOverController;
+
     private final List<PlatformRow> rows = new ArrayList<>();
     private final ArrayDeque<PlatformRow> pendingScoreRows = new ArrayDeque<>();
     private float lowestGeneratedY;
     private float spawnY;
 
     private float depthScore;
-    private int comboChain;
-    private boolean ballTouchedSinceLastRow;
-    private boolean gameOver;
 
     private static final float FIXED_TIMESTEP = 1f / 60f;
     private float physicsAccumulator;
@@ -124,14 +126,17 @@ public class DropGame extends ApplicationAdapter {
             world.dispose();
         }
         world = new World(new com.badlogic.gdx.math.Vector2(0, GRAVITY_Y), true);
-        world.setContactListener(new BallContactListener());
+
+        eventBus = new GameEventBus();
+        scoreManager = new ScoreManager();
+        gameOverController = new GameOverController();
+        eventBus.subscribe(scoreManager);
+        eventBus.subscribe(gameOverController);
+        world.setContactListener(new ContactDispatcher(eventBus));
 
         rows.clear();
         pendingScoreRows.clear();
         depthScore = 0f;
-        comboChain = 0;
-        ballTouchedSinceLastRow = false;
-        gameOver = false;
         physicsAccumulator = 0f;
 
         spawnY = 0f;
@@ -194,15 +199,37 @@ public class DropGame extends ApplicationAdapter {
         return body;
     }
 
-    /** Basic randomized single-gap platform generator. No formal
-     * reachability validator -- an occasional unfair gap is an accepted
-     * risk for this raw validation prototype (see design doc). */
+    /** Procedural single-gap platform generator, now gated by
+     * GapReachabilityValidator: a proposed gap is retried (never patched
+     * or fudged) until it passes the worst-case reachability check, or
+     * MAX_GENERATION_ATTEMPTS is hit -- the last attempt is accepted
+     * regardless, so generation can never hang. */
     private void spawnNextRow() {
         float rowY = lowestGeneratedY;
         lowestGeneratedY -= ROW_SPACING;
 
-        float gapWidth = MathUtils.random(GAP_MIN_WIDTH, GAP_MAX_WIDTH);
-        float gapStart = MathUtils.random(0.5f, WORLD_WIDTH - gapWidth - 0.5f);
+        // Rows are generated ~6 rows ahead of the ball (see manageRows), so
+        // the ball has that whole lookahead distance -- not just one row's
+        // worth -- to reposition before this specific row matters. Using
+        // only a single row's fall time here would make the validator
+        // reject the large majority of gaps against these tuning constants
+        // (worst-case horizontal distances routinely exceed what one row's
+        // fall time allows), which defeats the point of the check. This is
+        // still a coarse fairness gate, not a full difficulty simulator --
+        // see the design doc's Open Questions on feel-tuning needing
+        // playtesting on top of this.
+        float lookaheadRows = 6f;
+        float timeToFall = (float) Math.sqrt(2 * (ROW_SPACING * lookaheadRows) / Math.abs(GRAVITY_Y));
+
+        float gapWidth = 0f;
+        float gapStart = 0f;
+        for (int attempt = 0; attempt < MAX_GENERATION_ATTEMPTS; attempt++) {
+            gapWidth = MathUtils.random(GAP_MIN_WIDTH, GAP_MAX_WIDTH);
+            gapStart = MathUtils.random(0.5f, WORLD_WIDTH - gapWidth - 0.5f);
+            if (GapReachabilityValidator.isReachable(gapStart, gapWidth, WORLD_WIDTH, MAX_HORIZONTAL_SPEED, timeToFall)) {
+                break;
+            }
+        }
         float gapEnd = gapStart + gapWidth;
 
         Body left = null;
@@ -246,7 +273,7 @@ public class DropGame extends ApplicationAdapter {
     public void render() {
         float delta = Math.min(Gdx.graphics.getDeltaTime(), 0.25f);
 
-        if (!gameOver) {
+        if (!gameOverController.isGameOver()) {
             handleInput(delta);
             stepPhysics(delta);
             updateCameraAndScroll(delta);
@@ -285,6 +312,7 @@ public class DropGame extends ApplicationAdapter {
         while (physicsAccumulator >= FIXED_TIMESTEP) {
             world.step(FIXED_TIMESTEP, 6, 2);
             physicsAccumulator -= FIXED_TIMESTEP;
+            PhysicsNaNGuard.checkAndFix(ballBody, WORLD_WIDTH / 2f, camera.position.y);
         }
     }
 
@@ -317,20 +345,17 @@ public class DropGame extends ApplicationAdapter {
             spawnNextRow();
         }
 
-        // Score: consecutive gap-passes without a platform contact build a combo.
+        // Score: dispatch GapPassed as the ball crosses each row's Y level.
+        // ScoreManager (an independent subscriber) owns the combo logic.
         while (!pendingScoreRows.isEmpty() && ballBody.getPosition().y < pendingScoreRows.peekFirst().y - PLATFORM_THICKNESS) {
-            pendingScoreRows.pollFirst();
-            if (ballTouchedSinceLastRow) {
-                comboChain = 0;
-            } else {
-                comboChain++;
-            }
-            ballTouchedSinceLastRow = false;
+            PlatformRow row = pendingScoreRows.pollFirst();
+            eventBus.dispatch(new GapPassed(row.y));
         }
 
         // Recycle rows well above the current camera view -- unbounded growth
         // is a basic hygiene bug, not the kind of "engineering rigor" that
-        // was scoped out (that was about event systems/validators/tests).
+        // was scoped out (that was about event systems/validators/tests,
+        // and those are now built -- see the class-level note above).
         float recycleAboveY = camera.position.y + WORLD_HEIGHT;
         List<PlatformRow> toRemove = new ArrayList<>();
         for (PlatformRow row : rows) {
@@ -348,7 +373,7 @@ public class DropGame extends ApplicationAdapter {
     private void checkGameOver() {
         float ballY = ballBody.getPosition().y;
         if (ballY - camera.position.y > WORLD_HEIGHT / 2f + TOP_MARGIN) {
-            gameOver = true;
+            eventBus.dispatch(new BallOffTop());
         }
     }
 
@@ -365,6 +390,7 @@ public class DropGame extends ApplicationAdapter {
             drawBody(row.right);
         }
 
+        boolean gameOver = gameOverController.isGameOver();
         shapeRenderer.setColor(gameOver ? Color.RED : Color.ORANGE);
         shapeRenderer.circle(ballBody.getPosition().x, ballBody.getPosition().y, BALL_RADIUS, 24);
 
@@ -372,7 +398,7 @@ public class DropGame extends ApplicationAdapter {
 
         batch.setProjectionMatrix(hudCamera.combined);
         batch.begin();
-        String label = "Depth: " + (int) depthScore + "m   Combo: " + comboChain;
+        String label = "Depth: " + (int) depthScore + "m   Combo: " + scoreManager.getComboChain();
         if (gameOver) {
             label += "\nGAME OVER -- tap to retry";
         }
@@ -417,35 +443,6 @@ public class DropGame extends ApplicationAdapter {
         shapeRenderer.dispose();
         batch.dispose();
         font.dispose();
-    }
-
-    private class BallContactListener implements ContactListener {
-        @Override
-        public void beginContact(Contact contact) {
-            Fixture a = contact.getFixtureA();
-            Fixture b = contact.getFixtureB();
-            if (isBallPlatformContact(a, b)) {
-                ballTouchedSinceLastRow = true;
-            }
-        }
-
-        @Override
-        public void endContact(Contact contact) {
-        }
-
-        @Override
-        public void preSolve(Contact contact, Manifold oldManifold) {
-        }
-
-        @Override
-        public void postSolve(Contact contact, ContactImpulse impulse) {
-        }
-
-        private boolean isBallPlatformContact(Fixture a, Fixture b) {
-            Object ua = a.getUserData();
-            Object ub = b.getUserData();
-            return ("ball".equals(ua) && "platform".equals(ub)) || ("ball".equals(ub) && "platform".equals(ua));
-        }
     }
 
     private static class PlatformRow {
