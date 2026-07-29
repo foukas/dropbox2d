@@ -11,7 +11,9 @@ public class AndroidLauncher extends AndroidApplication {
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         AndroidApplicationConfiguration config = new AndroidApplicationConfiguration();
-        config.useAccelerometer = false;
+        // Needed for TiltInputProvider (Approach B1) -- was correctly false
+        // when the project was scaffolded and nothing used it yet.
+        config.useAccelerometer = true;
         config.useCompass = false;
         initialize(new DropGame(), config);
     }

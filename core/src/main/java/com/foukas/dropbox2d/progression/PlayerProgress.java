@@ -13,10 +13,12 @@ public class PlayerProgress {
     private static final String KEY_BEST_DEPTH = "bestDepth";
     private static final String KEY_STREAK = "streak";
     private static final String KEY_LAST_PLAYED_DAY = "lastPlayedDay";
+    private static final String KEY_PREFER_TILT = "preferTilt";
 
     private final Preferences prefs;
     private float bestDepth;
     private int streak;
+    private boolean preferTilt;
 
     public PlayerProgress() {
         this(Gdx.app.getPreferences(PREFS_NAME));
@@ -29,6 +31,17 @@ public class PlayerProgress {
         this.prefs = prefs;
         bestDepth = prefs.getFloat(KEY_BEST_DEPTH, 0f);
         streak = prefs.getInteger(KEY_STREAK, 0);
+        preferTilt = prefs.getBoolean(KEY_PREFER_TILT, false); // tap is the default per Premise 1
+    }
+
+    public boolean getPreferTilt() {
+        return preferTilt;
+    }
+
+    public void setPreferTilt(boolean preferTilt) {
+        this.preferTilt = preferTilt;
+        prefs.putBoolean(KEY_PREFER_TILT, preferTilt);
+        prefs.flush();
     }
 
     /** Call once per app session (not per run) -- updates and persists the

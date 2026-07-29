@@ -32,6 +32,9 @@ import com.foukas.dropbox2d.events.PowerUpCollected;
 import com.foukas.dropbox2d.fx.ParticleSystem;
 import com.foukas.dropbox2d.fx.ScreenShake;
 import com.foukas.dropbox2d.generation.GapReachabilityValidator;
+import com.foukas.dropbox2d.input.InputProvider;
+import com.foukas.dropbox2d.input.TapInputProvider;
+import com.foukas.dropbox2d.input.TiltInputProvider;
 import com.foukas.dropbox2d.generation.PlatformType;
 import com.foukas.dropbox2d.physics.DebrisManager;
 import com.foukas.dropbox2d.physics.PhysicsNaNGuard;
@@ -121,6 +124,13 @@ public class DropGame extends ApplicationAdapter implements GameEventListener {
     private static final float BREAK_SHAKE_MAGNITUDE = 0.12f;
     private static final float TOAST_DURATION = 2.5f;
 
+    // B1: game-over-only tap zone (screen pixels from the top) that toggles
+    // control scheme instead of retrying. Kept off the main play area on
+    // purpose -- tapping anywhere during active play already means "steer,"
+    // so a toggle button there would either get hit accidentally or need
+    // its own no-steer exclusion zone during gameplay for no real benefit.
+    private static final float CONTROL_TOGGLE_ZONE_HEIGHT = 100f;
+
     // ----- Runtime state -----
     private World world;
     private Body ballBody;
@@ -149,6 +159,10 @@ public class DropGame extends ApplicationAdapter implements GameEventListener {
     private String toastText;
     private float toastTimer;
     private float comboPulseTimer;
+
+    // B1: persistent across runs, loaded from PlayerProgress at create().
+    private InputProvider inputProvider;
+    private boolean useTilt;
 
     private final List<PlatformRow> rows = new ArrayList<>();
     private final ArrayDeque<PlatformRow> pendingScoreRows = new ArrayDeque<>();
@@ -183,6 +197,9 @@ public class DropGame extends ApplicationAdapter implements GameEventListener {
         // Tiers already earned in prior sessions shouldn't re-announce on
         // every app open -- only tiers crossed from here on are new news.
         highestAnnouncedTier = SkinTier.forDepth(playerProgress.getBestDepth());
+
+        useTilt = playerProgress.getPreferTilt();
+        inputProvider = useTilt ? new TiltInputProvider() : new TapInputProvider();
 
         startNewRun();
     }
@@ -432,10 +449,23 @@ public class DropGame extends ApplicationAdapter implements GameEventListener {
             checkGameOver();
             updateProgressionAndFx(delta);
         } else if (Gdx.input.justTouched()) {
-            startNewRun();
+            // Gdx.input.getY() is measured from the TOP of the screen
+            // (touch-coordinate convention), unlike the world's Y-up
+            // OpenGL convention used everywhere else in this class.
+            if (Gdx.input.getY() < CONTROL_TOGGLE_ZONE_HEIGHT) {
+                toggleControlScheme();
+            } else {
+                startNewRun();
+            }
         }
 
         draw();
+    }
+
+    private void toggleControlScheme() {
+        useTilt = !useTilt;
+        inputProvider = useTilt ? new TiltInputProvider() : new TapInputProvider();
+        playerProgress.setPreferTilt(useTilt);
     }
 
     /** Combo-multiplier pulse/shake/particles on a combo increase, live
@@ -477,15 +507,18 @@ public class DropGame extends ApplicationAdapter implements GameEventListener {
     }
 
     private void handleInput(float delta) {
-        boolean touched = Gdx.input.isTouched();
-        if (touched) {
-            float touchX = Gdx.input.getX();
-            float screenHalf = Gdx.graphics.getWidth() / 2f;
-            float direction = touchX < screenHalf ? -1f : 1f;
+        // steer is in [-1, 1]. Tap produces only -1/0/1 (binary, same feel
+        // as Approach A); tilt produces a continuous value based on how far
+        // past its dead zone the device is tilted -- magnitude scales the
+        // applied force, giving tilt genuine analog control tap never had.
+        float steer = inputProvider.getSteerValue();
+        if (Math.abs(steer) > 0.001f) {
+            float direction = Math.signum(steer);
+            float magnitude = Math.abs(steer);
 
             float vx = ballBody.getLinearVelocity().x;
             if (Math.signum(vx) != direction || Math.abs(vx) < MAX_HORIZONTAL_SPEED) {
-                ballBody.applyForceToCenter(direction * STEER_FORCE, 0f, true);
+                ballBody.applyForceToCenter(direction * STEER_FORCE * magnitude, 0f, true);
             }
         }
 
@@ -645,7 +678,7 @@ public class DropGame extends ApplicationAdapter implements GameEventListener {
         if (powerUpManager.isActive()) {
             label.append(String.format("\n%s: %.1fs", displayName(powerUpManager.getActiveType()), powerUpManager.getRemaining()));
         }
-        label.append(String.format("\nBest: %dm   Streak: %dd", (int) playerProgress.getBestDepth(), playerProgress.getStreak()));
+        label.append(String.format("\nBest: %dm   Streak: %dd   Controls: %s", (int) playerProgress.getBestDepth(), playerProgress.getStreak(), useTilt ? "TILT" : "TAP"));
         if (gameOver) {
             label.append("\nGAME OVER -- tap to retry");
         }
@@ -653,8 +686,16 @@ public class DropGame extends ApplicationAdapter implements GameEventListener {
 
         drawComboMultiplier();
         drawToast();
+        if (gameOver) {
+            drawControlToggleHint();
+        }
 
         batch.end();
+    }
+
+    private void drawControlToggleHint() {
+        String hint = "Tap here to switch to " + (useTilt ? "TAP" : "TILT");
+        font.draw(batch, hint, 0f, Gdx.graphics.getHeight() - 10f, Gdx.graphics.getWidth(), com.badlogic.gdx.utils.Align.center, false);
     }
 
     private void drawBackground() {

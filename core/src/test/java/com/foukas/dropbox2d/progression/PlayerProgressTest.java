@@ -20,6 +20,22 @@ class PlayerProgressTest {
     }
 
     @Test
+    void tapIsTheDefaultControlScheme() {
+        PlayerProgress progress = new PlayerProgress(new FakePreferences());
+        assertFalse(progress.getPreferTilt());
+    }
+
+    @Test
+    void controlSchemePreferenceSurvivesAcrossInstances() {
+        FakePreferences prefs = new FakePreferences();
+        new PlayerProgress(prefs).setPreferTilt(true);
+
+        PlayerProgress reopened = new PlayerProgress(prefs);
+
+        assertTrue(reopened.getPreferTilt());
+    }
+
+    @Test
     void reportDepthUpdatesBestOnlyWhenHigher() {
         PlayerProgress progress = new PlayerProgress(new FakePreferences());
 
