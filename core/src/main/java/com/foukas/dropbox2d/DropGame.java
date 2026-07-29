@@ -36,6 +36,8 @@ import com.foukas.dropbox2d.input.InputProvider;
 import com.foukas.dropbox2d.input.TapInputProvider;
 import com.foukas.dropbox2d.input.TiltInputProvider;
 import com.foukas.dropbox2d.generation.PlatformType;
+import com.foukas.dropbox2d.monetization.AdProvider;
+import com.foukas.dropbox2d.monetization.NoOpAdProvider;
 import com.foukas.dropbox2d.physics.DebrisManager;
 import com.foukas.dropbox2d.physics.PhysicsNaNGuard;
 import com.foukas.dropbox2d.powerups.PowerUpManager;
@@ -131,6 +133,14 @@ public class DropGame extends ApplicationAdapter implements GameEventListener {
     // its own no-steer exclusion zone during gameplay for no real benefit.
     private static final float CONTROL_TOGGLE_ZONE_HEIGHT = 100f;
 
+    // Monetization plumbing: a second game-over tap zone, directly below the
+    // control-toggle band, offering a free wrecking-ball power-up on the next
+    // run in exchange for a rewarded ad. Gated behind adProvider.isRewardedAdReady()
+    // for both the tap handler and the hint text, so with NoOpAdProvider (the
+    // only implementation that exists today) this zone is entirely inert and
+    // invisible -- see AdProvider's class doc for what it takes to go live.
+    private static final float AD_OFFER_ZONE_HEIGHT = 200f;
+
     // ----- Runtime state -----
     private World world;
     private Body ballBody;
@@ -163,6 +173,13 @@ public class DropGame extends ApplicationAdapter implements GameEventListener {
     // B1: persistent across runs, loaded from PlayerProgress at create().
     private InputProvider inputProvider;
     private boolean useTilt;
+
+    // Monetization plumbing: persistent across runs. adProvider is
+    // NoOpAdProvider until a real one is swapped in; pendingRewardedWreckingBall
+    // is set when a rewarded ad completes and consumed at the start of the
+    // next run.
+    private AdProvider adProvider;
+    private boolean pendingRewardedWreckingBall;
 
     private final List<PlatformRow> rows = new ArrayList<>();
     private final ArrayDeque<PlatformRow> pendingScoreRows = new ArrayDeque<>();
@@ -201,6 +218,8 @@ public class DropGame extends ApplicationAdapter implements GameEventListener {
         useTilt = playerProgress.getPreferTilt();
         inputProvider = useTilt ? new TiltInputProvider() : new TapInputProvider();
 
+        adProvider = new NoOpAdProvider();
+
         startNewRun();
     }
 
@@ -236,6 +255,11 @@ public class DropGame extends ApplicationAdapter implements GameEventListener {
         powerUpManager = new PowerUpManager();
         powerUpManager.register("wreckingBall", new WreckingBallPowerUp(ballBody));
         debrisManager = new DebrisManager(world);
+
+        if (pendingRewardedWreckingBall) {
+            pendingRewardedWreckingBall = false;
+            powerUpManager.activate("wreckingBall");
+        }
 
         camera.position.set(WORLD_WIDTH / 2f, spawnY, 0f);
         camera.update();
@@ -454,6 +478,8 @@ public class DropGame extends ApplicationAdapter implements GameEventListener {
             // OpenGL convention used everywhere else in this class.
             if (Gdx.input.getY() < CONTROL_TOGGLE_ZONE_HEIGHT) {
                 toggleControlScheme();
+            } else if (Gdx.input.getY() < AD_OFFER_ZONE_HEIGHT && adProvider.isRewardedAdReady()) {
+                offerRewardedAd();
             } else {
                 startNewRun();
             }
@@ -466,6 +492,24 @@ public class DropGame extends ApplicationAdapter implements GameEventListener {
         useTilt = !useTilt;
         inputProvider = useTilt ? new TiltInputProvider() : new TapInputProvider();
         playerProgress.setPreferTilt(useTilt);
+    }
+
+    /** Only reachable when adProvider.isRewardedAdReady() -- with
+     * NoOpAdProvider that's never, so this is dead code in practice until a
+     * real AdProvider is swapped in. onRewardEarned just sets a flag;
+     * startNewRun() consumes it, since applying the power-up here would
+     * grant it to the run that's already over. */
+    private void offerRewardedAd() {
+        adProvider.showRewardedAd(new AdProvider.AdCallback() {
+            @Override
+            public void onRewardEarned() {
+                pendingRewardedWreckingBall = true;
+            }
+
+            @Override
+            public void onAdFailedOrCancelled() {
+            }
+        });
     }
 
     /** Combo-multiplier pulse/shake/particles on a combo increase, live
@@ -688,6 +732,9 @@ public class DropGame extends ApplicationAdapter implements GameEventListener {
         drawToast();
         if (gameOver) {
             drawControlToggleHint();
+            if (adProvider.isRewardedAdReady()) {
+                drawRewardedAdHint();
+            }
         }
 
         batch.end();
@@ -696,6 +743,12 @@ public class DropGame extends ApplicationAdapter implements GameEventListener {
     private void drawControlToggleHint() {
         String hint = "Tap here to switch to " + (useTilt ? "TAP" : "TILT");
         font.draw(batch, hint, 0f, Gdx.graphics.getHeight() - 10f, Gdx.graphics.getWidth(), com.badlogic.gdx.utils.Align.center, false);
+    }
+
+    private void drawRewardedAdHint() {
+        String hint = "Tap here for a free Wrecking Ball (watch ad)";
+        float y = Gdx.graphics.getHeight() - (CONTROL_TOGGLE_ZONE_HEIGHT + AD_OFFER_ZONE_HEIGHT) / 2f;
+        font.draw(batch, hint, 0f, y, Gdx.graphics.getWidth(), com.badlogic.gdx.utils.Align.center, false);
     }
 
     private void drawBackground() {
