@@ -42,12 +42,6 @@ public class GameplayRenderer {
     private static final Color BG_BOTTOM_COLOR = new Color(0.02f, 0.02f, 0.04f, 1f);
     private static final Color COMBO_TEXT_COLOR = new Color(1f, 0.85f, 0.2f, 1f);
 
-    // The default BitmapFont is sized in raw pixels (~15px cap height),
-    // which reads fine on the ~960px-tall desktop dev window but is tiny
-    // on a much higher-resolution phone screen. Scale it relative to
-    // screen height so it stays legible across both.
-    private static final float FONT_REFERENCE_HEIGHT = 960f;
-
     private final ScreenShake screenShake;
     private final ParticleSystem particleSystem;
     private final PlayerProgress playerProgress;
@@ -272,8 +266,7 @@ public class GameplayRenderer {
     }
 
     private void updateFontScale() {
-        float scale = Gdx.graphics.getHeight() / FONT_REFERENCE_HEIGHT;
-        font.getData().setScale(Math.max(1f, scale));
+        font.getData().setScale(HudFontScale.forScreenHeight(Gdx.graphics.getHeight()));
     }
 
     void dispose() {
