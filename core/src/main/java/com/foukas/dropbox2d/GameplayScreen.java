@@ -80,7 +80,7 @@ public class GameplayScreen implements Screen, GameEventListener {
     // Package-private: also read by GameplayRenderer.
     static final float POWERUP_RADIUS = 0.25f;
     // Registered power-up types (must match PowerUpManager.register keys in
-    // startNewRun). One entry today; adding a second type is adding it here
+    // resetForNewRun). One entry today; adding a second type is adding it here
     // plus a register() call -- pickup placement/rendering stay type-agnostic.
     private static final String[] POWER_UP_TYPES = {"wreckingBall"};
 
@@ -200,10 +200,18 @@ public class GameplayScreen implements Screen, GameEventListener {
         useTilt = playerProgress.getPreferTilt();
         inputProvider = useTilt ? new TiltInputProvider() : new TapInputProvider();
 
-        startNewRun();
+        resetForNewRun();
     }
 
-    private void startNewRun() {
+    /** Resets all per-run state -- Box2D world/rows/depthScore (as before),
+     * plus ScreenShake/ParticleSystem (plan-eng-review outside-voice
+     * finding: these are per-run state, same category as MotionTrail's
+     * buffer, not app-lifetime state like PlayerProgress/AdProvider).
+     * Without this, a death-moment shake or lingering particles could
+     * carry into the next run since GameplayScreen -- and the objects it's
+     * constructor-injected with -- are now reused across retries rather
+     * than reconstructed (see DropGame's class doc). */
+    private void resetForNewRun() {
         if (world != null) {
             world.dispose();
         }
@@ -226,9 +234,8 @@ public class GameplayScreen implements Screen, GameEventListener {
         lastComboChain = 0;
         comboPulseTimer = 0f;
         toastTimer = 0f;
-        if (particleSystem != null) {
-            particleSystem.clear();
-        }
+        particleSystem.clear();
+        screenShake.stop();
 
         spawnY = 0f;
         ballBody = createBall(WORLD_WIDTH / 2f, spawnY + 1.5f);
@@ -461,7 +468,7 @@ public class GameplayScreen implements Screen, GameEventListener {
             } else if (Gdx.input.getY() < AD_OFFER_ZONE_HEIGHT && adProvider.isRewardedAdReady()) {
                 offerRewardedAd();
             } else {
-                startNewRun();
+                resetForNewRun();
             }
         }
 
@@ -477,7 +484,7 @@ public class GameplayScreen implements Screen, GameEventListener {
     /** Only reachable when adProvider.isRewardedAdReady() -- with
      * NoOpAdProvider that's never, so this is dead code in practice until a
      * real AdProvider is swapped in. onRewardEarned just sets a flag;
-     * startNewRun() consumes it, since applying the power-up here would
+     * resetForNewRun() consumes it, since applying the power-up here would
      * grant it to the run that's already over. */
     private void offerRewardedAd() {
         adProvider.showRewardedAd(new AdProvider.AdCallback() {

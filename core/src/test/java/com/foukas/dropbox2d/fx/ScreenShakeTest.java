@@ -66,4 +66,18 @@ class ScreenShakeTest {
         shake.update(0.5f); // would have expired the weak trigger, not the strong one
         assertTrue(shake.isShaking());
     }
+
+    @Test
+    void stopClearsAnActiveShakeImmediately() {
+        ScreenShake shake = new ScreenShake();
+        shake.trigger(0.3f, 0.2f);
+        shake.update(0.01f);
+        assertTrue(shake.isShaking());
+
+        shake.stop();
+
+        assertFalse(shake.isShaking());
+        assertEquals(0f, shake.getOffset().x);
+        assertEquals(0f, shake.getOffset().y);
+    }
 }

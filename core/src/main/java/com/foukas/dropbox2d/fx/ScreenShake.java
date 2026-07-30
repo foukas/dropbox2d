@@ -43,4 +43,13 @@ public class ScreenShake {
     public boolean isShaking() {
         return timeRemaining > 0f;
     }
+
+    /** Clears any active shake immediately, without waiting for it to decay
+     * via update() -- for resetting per-run state (e.g. a death-moment
+     * shake shouldn't carry into the next run). */
+    public void stop() {
+        timeRemaining = 0f;
+        magnitude = 0f;
+        offset.setZero();
+    }
 }
