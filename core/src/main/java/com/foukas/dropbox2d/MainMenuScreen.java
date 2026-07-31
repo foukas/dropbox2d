@@ -58,7 +58,10 @@ public class MainMenuScreen implements Screen {
             return;
         }
 
-        Gdx.gl.glClearColor(0.04f, 0.04f, 0.07f, 1f);
+        // #1a0b2e -- matches GameplayRenderer's BG_TOP_COLOR (Next Step 7's
+        // synthwave palette), flat rather than gradient since this screen
+        // has no depth-scrolling motion to gradient against.
+        Gdx.gl.glClearColor(0.1020f, 0.0431f, 0.1804f, 1f);
         Gdx.gl.glClear(GL20.GL_COLOR_BUFFER_BIT);
 
         batch.setProjectionMatrix(hudCamera.combined);

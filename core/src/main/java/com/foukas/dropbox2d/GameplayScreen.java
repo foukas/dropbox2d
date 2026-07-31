@@ -107,7 +107,9 @@ public class GameplayScreen implements Screen, GameEventListener {
     // Package-private: also read by GameplayRenderer -- used both for the
     // particle burst color when a platform breaks (here, in onEvent) and
     // for the debris body color when rendering (GameplayRenderer.draw()).
-    static final Color DEBRIS_COLOR = new Color(0.5f, 0.4f, 0.35f, 1f);
+    // Burnt-orange (Next Step 7's synthwave palette), a darker relative of
+    // WEAK_PLATFORM_COLOR so debris visually reads as pieces of it.
+    static final Color DEBRIS_COLOR = new Color(0.7098f, 0.2706f, 0.1216f, 1f); // #b5451f
 
     // B2/B4 juice tuning
     // Package-private: also read by GameplayRenderer's combo-pulse envelope.
@@ -306,10 +308,22 @@ public class GameplayScreen implements Screen, GameEventListener {
         // the exact moment of the transition, not something either of
         // those two focused subscribers should also own.
         if (event instanceof PlatformDestroyed destroyed) {
-            pendingPlatformDestructions.add(destroyed);
-            screenShake.trigger(BREAK_SHAKE_DURATION, BREAK_SHAKE_MAGNITUDE);
-            int particleCount = MathUtils.clamp(Math.round(destroyed.width() * 2f), 4, 14);
-            particleSystem.burst(destroyed.x(), destroyed.y(), DEBRIS_COLOR, particleCount);
+            // preSolve fires every physics substep the ball remains in
+            // contact with a still-existing weak platform -- setEnabled(false)
+            // only suppresses collision response for that one step, not
+            // future preSolve calls, so the same body can dispatch
+            // PlatformDestroyed more than once within a single render frame
+            // when stepPhysics() runs multiple substeps (more likely the
+            // more platforms are breaking at once). Without this guard,
+            // drainPendingWorldMutations() would call world.destroyBody()
+            // twice on the same native body -- undefined behavior, observed
+            // as a freeze rather than a clean exception.
+            if (!isAlreadyQueuedForDestruction(destroyed.body())) {
+                pendingPlatformDestructions.add(destroyed);
+                screenShake.trigger(BREAK_SHAKE_DURATION, BREAK_SHAKE_MAGNITUDE);
+                int particleCount = MathUtils.clamp(Math.round(destroyed.width() * 2f), 4, 14);
+                particleSystem.burst(destroyed.x(), destroyed.y(), DEBRIS_COLOR, particleCount);
+            }
         } else if (event instanceof PowerUpCollected collected) {
             pendingPowerUpPickups.add(collected);
         } else if (event instanceof BallOffTop) {
@@ -318,6 +332,15 @@ public class GameplayScreen implements Screen, GameEventListener {
                 toastTimer = TOAST_DURATION;
             }
         }
+    }
+
+    private boolean isAlreadyQueuedForDestruction(Body body) {
+        for (PlatformDestroyed queued : pendingPlatformDestructions) {
+            if (queued.body() == body) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private Body createBall(float x, float y) {

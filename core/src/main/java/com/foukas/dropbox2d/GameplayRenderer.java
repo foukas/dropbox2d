@@ -32,15 +32,19 @@ import com.foukas.dropbox2d.progression.SkinTier;
  */
 public class GameplayRenderer {
 
-    private static final Color NORMAL_PLATFORM_COLOR = new Color(0.55f, 0.55f, 0.65f, 1f);
-    private static final Color WEAK_PLATFORM_COLOR = new Color(0.65f, 0.5f, 0.3f, 1f);
-    private static final Color POWERUP_COLOR = new Color(1f, 0.84f, 0f, 1f);
-    private static final Color WRECKING_BALL_COLOR = new Color(0.55f, 0.1f, 0.1f, 1f);
-    // Wide contrast on purpose -- the first attempt (0.14 vs 0.04) was
-    // nearly indistinguishable from the old flat clear color at a glance.
-    private static final Color BG_TOP_COLOR = new Color(0.32f, 0.36f, 0.52f, 1f);
-    private static final Color BG_BOTTOM_COLOR = new Color(0.02f, 0.02f, 0.04f, 1f);
-    private static final Color COMBO_TEXT_COLOR = new Color(1f, 0.85f, 0.2f, 1f);
+    // Synthwave palette "A -- Classic Synthwave" (plan-eng-review Next Step 7,
+    // user-picked from a 3-option visual comparison). Hex values kept in
+    // comments since libGDX's Color constructor takes 0-1 floats, not hex.
+    private static final Color NORMAL_PLATFORM_COLOR = new Color(0f, 0.898f, 1f, 1f); // #00e5ff cyan
+    private static final Color WEAK_PLATFORM_COLOR = new Color(1f, 0.4196f, 0.2078f, 1f); // #ff6b35 orange
+    private static final Color POWERUP_COLOR = new Color(1f, 0.8235f, 0.2471f, 1f); // #ffd23f gold
+    private static final Color WRECKING_BALL_COLOR = new Color(1f, 0.1765f, 0.1765f, 1f); // #ff2d2d red
+    // Static purple gradient for now -- DepthAtmosphere (Next Step 8) layers
+    // depth-tied saturation on top of this base, pushing it toward a
+    // brighter neon horizon the deeper the run goes.
+    private static final Color BG_TOP_COLOR = new Color(0.1020f, 0.0431f, 0.1804f, 1f); // #1a0b2e dark purple
+    private static final Color BG_BOTTOM_COLOR = new Color(0.4157f, 0.1725f, 0.5686f, 1f); // #6a2c91 mid purple-magenta
+    private static final Color COMBO_TEXT_COLOR = new Color(1f, 0.8824f, 0.3020f, 1f); // #ffe14d gold
     private static final Color PAUSE_DIM_COLOR = new Color(0f, 0f, 0f, 0.6f);
 
     private final ScreenShake screenShake;
