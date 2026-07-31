@@ -41,6 +41,7 @@ public class GameplayRenderer {
     private static final Color BG_TOP_COLOR = new Color(0.32f, 0.36f, 0.52f, 1f);
     private static final Color BG_BOTTOM_COLOR = new Color(0.02f, 0.02f, 0.04f, 1f);
     private static final Color COMBO_TEXT_COLOR = new Color(1f, 0.85f, 0.2f, 1f);
+    private static final Color PAUSE_DIM_COLOR = new Color(0f, 0f, 0f, 0.6f);
 
     private final ScreenShake screenShake;
     private final ParticleSystem particleSystem;
@@ -109,6 +110,11 @@ public class GameplayRenderer {
 
         shapeRenderer.end();
 
+        boolean paused = screen.isPaused();
+        if (paused) {
+            drawPauseDim();
+        }
+
         batch.setProjectionMatrix(hudCamera.combined);
         batch.begin();
         font.setColor(Color.WHITE);
@@ -130,8 +136,33 @@ public class GameplayRenderer {
                 drawRewardedAdHint();
             }
         }
+        if (paused) {
+            drawPauseText();
+        }
 
         batch.end();
+    }
+
+    /** Dim rect over the last-rendered (frozen, since physics isn't
+     * stepping while paused) gameplay frame -- its own shapeRenderer
+     * begin/end pair, called BEFORE batch.begin() (see draw()) since
+     * ShapeRenderer and SpriteBatch must not have overlapping begin/end
+     * blocks. See the design doc's Open Questions for why this is manual
+     * ShapeRenderer/BitmapFont rather than a Scene2D Stage. */
+    private void drawPauseDim() {
+        shapeRenderer.setProjectionMatrix(hudCamera.combined);
+        shapeRenderer.begin(ShapeRenderer.ShapeType.Filled);
+        shapeRenderer.setColor(PAUSE_DIM_COLOR);
+        shapeRenderer.rect(0f, 0f, Gdx.graphics.getWidth(), Gdx.graphics.getHeight());
+        shapeRenderer.end();
+    }
+
+    private void drawPauseText() {
+        float width = Gdx.graphics.getWidth();
+        float height = Gdx.graphics.getHeight();
+        font.draw(batch, "PAUSED", 0f, height * 0.6f, width, com.badlogic.gdx.utils.Align.center, false);
+        font.draw(batch, "Tap to resume", 0f, height * 0.5f, width, com.badlogic.gdx.utils.Align.center, false);
+        font.draw(batch, "Tap here to quit to menu", 0f, font.getLineHeight() + 10f, width, com.badlogic.gdx.utils.Align.center, false);
     }
 
     private void drawControlToggleHint(GameplayScreen screen) {

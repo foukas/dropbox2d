@@ -51,7 +51,9 @@ public class DropGame extends Game {
         // Circular reference: GameplayScreen needs to transition to
         // GameOverScreen on game-over, but GameOverScreen needs GameplayScreen
         // (for retry) to already exist -- wire it in this second phase.
+        // Same reasoning for the pause overlay's quit-to-menu action.
         gameplayScreen.setGameOverScreen(gameOverScreen);
+        gameplayScreen.setMainMenuScreen(mainMenuScreen);
         setScreen(mainMenuScreen);
     }
 

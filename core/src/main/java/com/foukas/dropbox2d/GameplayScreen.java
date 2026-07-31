@@ -2,6 +2,7 @@ package com.foukas.dropbox2d;
 
 import com.badlogic.gdx.Gdx;
 import com.badlogic.gdx.Game;
+import com.badlogic.gdx.Input;
 import com.badlogic.gdx.Screen;
 import com.badlogic.gdx.graphics.Color;
 import com.badlogic.gdx.graphics.OrthographicCamera;
@@ -135,6 +136,10 @@ public class GameplayScreen implements Screen, GameEventListener {
     // Package-private: see CONTROL_TOGGLE_ZONE_HEIGHT above.
     static final float AD_OFFER_ZONE_HEIGHT = 200f;
 
+    // Pause overlay's quit-to-menu tap zone (bottom strip, screen pixels
+    // from the bottom) -- mirrors GameOverScreen's back-to-menu zone sizing.
+    private static final float PAUSE_QUIT_ZONE_HEIGHT = 100f;
+
     // ----- App-lifetime objects, owned by DropGame, constructor-injected -----
     private final Game game;
     private final PlayerProgress playerProgress;
@@ -145,6 +150,10 @@ public class GameplayScreen implements Screen, GameEventListener {
     // are constructed -- circular reference (GameOverScreen also needs this
     // instance, for retry), so DropGame wires it in a second phase.
     private GameOverScreen gameOverScreen;
+    // Set once via setMainMenuScreen(), same reason -- needed for the pause
+    // overlay's quit-to-menu action.
+    private MainMenuScreen mainMenuScreen;
+    private boolean paused;
 
     // ----- Runtime state -----
     private World world;
@@ -219,6 +228,10 @@ public class GameplayScreen implements Screen, GameEventListener {
         this.gameOverScreen = gameOverScreen;
     }
 
+    void setMainMenuScreen(MainMenuScreen mainMenuScreen) {
+        this.mainMenuScreen = mainMenuScreen;
+    }
+
     /** Resets all per-run state -- Box2D world/rows/depthScore (as before),
      * plus ScreenShake/ParticleSystem (plan-eng-review outside-voice
      * finding: these are per-run state, same category as MotionTrail's
@@ -254,6 +267,7 @@ public class GameplayScreen implements Screen, GameEventListener {
         toastTimer = 0f;
         particleSystem.clear();
         screenShake.stop();
+        paused = false;
 
         spawnY = 0f;
         ballBody = createBall(WORLD_WIDTH / 2f, spawnY + 1.5f);
@@ -466,8 +480,30 @@ public class GameplayScreen implements Screen, GameEventListener {
 
     @Override
     public void render(float rawDelta) {
-        float delta = Math.min(rawDelta, 0.25f);
+        // Pause trigger is BACK (Android)/ESCAPE (desktop) only -- not an
+        // on-screen tap zone, since the whole play area is already a
+        // tap-to-steer surface (resolved in the design doc's Open
+        // Questions). Toggling here, before the paused/unpaused branches
+        // below, means the very frame pause is requested already reflects
+        // the new state.
+        if (Gdx.input.isKeyJustPressed(Input.Keys.BACK) || Gdx.input.isKeyJustPressed(Input.Keys.ESCAPE)) {
+            paused = !paused;
+        }
 
+        if (paused) {
+            if (Gdx.input.justTouched()) {
+                if (Gdx.input.getY() > Gdx.graphics.getHeight() - PAUSE_QUIT_ZONE_HEIGHT) {
+                    paused = false;
+                    game.setScreen(mainMenuScreen);
+                    return;
+                }
+                paused = false;
+            }
+            renderer.draw(this);
+            return;
+        }
+
+        float delta = Math.min(rawDelta, 0.25f);
         handleInput(delta);
         stepPhysics(delta);
         drainPendingWorldMutations();
@@ -487,6 +523,10 @@ public class GameplayScreen implements Screen, GameEventListener {
         if (gameOverController.isGameOver()) {
             game.setScreen(gameOverScreen);
         }
+    }
+
+    boolean isPaused() {
+        return paused;
     }
 
     // Package-private: called by GameOverScreen's control-toggle tap zone.
