@@ -71,6 +71,11 @@ public class MainMenuScreen implements Screen {
         batch.end();
 
         if (Gdx.input.justTouched()) {
+            // GameplayScreen no longer resets itself at construction (see
+            // its class doc, plan-eng-review Next Step 5) -- every real
+            // entry point into gameplay resets explicitly right before the
+            // transition.
+            gameplayScreen.resetForNewRun();
             game.setScreen(gameplayScreen);
         }
     }

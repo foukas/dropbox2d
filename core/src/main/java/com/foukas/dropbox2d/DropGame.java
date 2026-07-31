@@ -29,6 +29,7 @@ public class DropGame extends Game {
     private AdProvider adProvider;
     private GameplayScreen gameplayScreen;
     private MainMenuScreen mainMenuScreen;
+    private GameOverScreen gameOverScreen;
 
     @Override
     public void create() {
@@ -44,8 +45,13 @@ public class DropGame extends Game {
         particleSystem = new ParticleSystem();
         adProvider = new NoOpAdProvider();
 
-        gameplayScreen = new GameplayScreen(playerProgress, screenShake, particleSystem, adProvider);
+        gameplayScreen = new GameplayScreen(this, playerProgress, screenShake, particleSystem, adProvider);
         mainMenuScreen = new MainMenuScreen(this, gameplayScreen, playerProgress);
+        gameOverScreen = new GameOverScreen(this, gameplayScreen, mainMenuScreen, playerProgress, adProvider);
+        // Circular reference: GameplayScreen needs to transition to
+        // GameOverScreen on game-over, but GameOverScreen needs GameplayScreen
+        // (for retry) to already exist -- wire it in this second phase.
+        gameplayScreen.setGameOverScreen(gameOverScreen);
         setScreen(mainMenuScreen);
     }
 
@@ -53,5 +59,6 @@ public class DropGame extends Game {
     public void dispose() {
         gameplayScreen.dispose();
         mainMenuScreen.dispose();
+        gameOverScreen.dispose();
     }
 }

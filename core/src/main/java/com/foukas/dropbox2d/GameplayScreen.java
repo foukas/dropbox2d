@@ -1,6 +1,7 @@
 package com.foukas.dropbox2d;
 
 import com.badlogic.gdx.Gdx;
+import com.badlogic.gdx.Game;
 import com.badlogic.gdx.Screen;
 import com.badlogic.gdx.graphics.Color;
 import com.badlogic.gdx.graphics.OrthographicCamera;
@@ -135,10 +136,15 @@ public class GameplayScreen implements Screen, GameEventListener {
     static final float AD_OFFER_ZONE_HEIGHT = 200f;
 
     // ----- App-lifetime objects, owned by DropGame, constructor-injected -----
+    private final Game game;
     private final PlayerProgress playerProgress;
     private final ScreenShake screenShake;
     private final ParticleSystem particleSystem;
     private final AdProvider adProvider;
+    // Set once via setGameOverScreen(), after both this and GameOverScreen
+    // are constructed -- circular reference (GameOverScreen also needs this
+    // instance, for retry), so DropGame wires it in a second phase.
+    private GameOverScreen gameOverScreen;
 
     // ----- Runtime state -----
     private World world;
@@ -182,8 +188,9 @@ public class GameplayScreen implements Screen, GameEventListener {
     private static final float FIXED_TIMESTEP = 1f / 60f;
     private float physicsAccumulator;
 
-    public GameplayScreen(PlayerProgress playerProgress, ScreenShake screenShake,
+    public GameplayScreen(Game game, PlayerProgress playerProgress, ScreenShake screenShake,
                            ParticleSystem particleSystem, AdProvider adProvider) {
+        this.game = game;
         this.playerProgress = playerProgress;
         this.screenShake = screenShake;
         this.particleSystem = particleSystem;
@@ -200,7 +207,16 @@ public class GameplayScreen implements Screen, GameEventListener {
         useTilt = playerProgress.getPreferTilt();
         inputProvider = useTilt ? new TiltInputProvider() : new TapInputProvider();
 
-        resetForNewRun();
+        // No resetForNewRun() call here (plan-eng-review Next Step 5): both
+        // real entry points into gameplay -- MainMenuScreen's "tap to
+        // start" and GameOverScreen's retry -- now call it explicitly
+        // before switching to this screen, so an initial call here would
+        // just build a Box2D world that gets discarded unseen.
+    }
+
+    // Called from DropGame.create(), after both screens exist.
+    void setGameOverScreen(GameOverScreen gameOverScreen) {
+        this.gameOverScreen = gameOverScreen;
     }
 
     /** Resets all per-run state -- Box2D world/rows/depthScore (as before),
@@ -210,8 +226,10 @@ public class GameplayScreen implements Screen, GameEventListener {
      * Without this, a death-moment shake or lingering particles could
      * carry into the next run since GameplayScreen -- and the objects it's
      * constructor-injected with -- are now reused across retries rather
-     * than reconstructed (see DropGame's class doc). */
-    private void resetForNewRun() {
+     * than reconstructed (see DropGame's class doc). Package-private: also
+     * called by MainMenuScreen and GameOverScreen before switching to this
+     * screen, since each of those is a fresh-run entry point. */
+    void resetForNewRun() {
         if (world != null) {
             world.dispose();
         }
@@ -450,32 +468,29 @@ public class GameplayScreen implements Screen, GameEventListener {
     public void render(float rawDelta) {
         float delta = Math.min(rawDelta, 0.25f);
 
-        if (!gameOverController.isGameOver()) {
-            handleInput(delta);
-            stepPhysics(delta);
-            drainPendingWorldMutations();
-            powerUpManager.update(delta);
-            updateCameraAndScroll(delta);
-            manageRows();
-            checkGameOver();
-            updateProgressionAndFx(delta);
-        } else if (Gdx.input.justTouched()) {
-            // Gdx.input.getY() is measured from the TOP of the screen
-            // (touch-coordinate convention), unlike the world's Y-up
-            // OpenGL convention used everywhere else in this class.
-            if (Gdx.input.getY() < CONTROL_TOGGLE_ZONE_HEIGHT) {
-                toggleControlScheme();
-            } else if (Gdx.input.getY() < AD_OFFER_ZONE_HEIGHT && adProvider.isRewardedAdReady()) {
-                offerRewardedAd();
-            } else {
-                resetForNewRun();
-            }
-        }
+        handleInput(delta);
+        stepPhysics(delta);
+        drainPendingWorldMutations();
+        powerUpManager.update(delta);
+        updateCameraAndScroll(delta);
+        manageRows();
+        checkGameOver();
+        updateProgressionAndFx(delta);
 
         renderer.draw(this);
+
+        // GameOverScreen takes over entirely from here (plan-eng-review
+        // Next Step 5) -- this screen won't render() again until
+        // resetForNewRun() + game.setScreen(this) brings it back for a new
+        // run, so there's no need to freeze update logic on a repeated
+        // "already game over" frame like the pre-Screen implementation did.
+        if (gameOverController.isGameOver()) {
+            game.setScreen(gameOverScreen);
+        }
     }
 
-    private void toggleControlScheme() {
+    // Package-private: called by GameOverScreen's control-toggle tap zone.
+    void toggleControlScheme() {
         useTilt = !useTilt;
         inputProvider = useTilt ? new TiltInputProvider() : new TapInputProvider();
         playerProgress.setPreferTilt(useTilt);
@@ -485,8 +500,9 @@ public class GameplayScreen implements Screen, GameEventListener {
      * NoOpAdProvider that's never, so this is dead code in practice until a
      * real AdProvider is swapped in. onRewardEarned just sets a flag;
      * resetForNewRun() consumes it, since applying the power-up here would
-     * grant it to the run that's already over. */
-    private void offerRewardedAd() {
+     * grant it to the run that's already over. Package-private: called by
+     * GameOverScreen's ad-offer tap zone. */
+    void offerRewardedAd() {
         adProvider.showRewardedAd(new AdProvider.AdCallback() {
             @Override
             public void onRewardEarned() {
