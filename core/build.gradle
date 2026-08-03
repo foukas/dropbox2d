@@ -1,6 +1,8 @@
 dependencies {
     api "com.badlogicgames.gdx:gdx:$gdxVersion"
     api "com.badlogicgames.gdx:gdx-box2d:$gdxVersion"
+    // TrueType font rendering for the HUD redesign (plan-eng-review Next Step 11).
+    api "com.badlogicgames.gdx:gdx-freetype:$gdxVersion"
     // Post-processing FBO pipeline for bloom/CRT (plan-eng-review Next Step 10).
     api 'com.crashinvaders.vfx:gdx-vfx-core:0.5.4'
     api 'com.crashinvaders.vfx:gdx-vfx-effects:0.5.4'

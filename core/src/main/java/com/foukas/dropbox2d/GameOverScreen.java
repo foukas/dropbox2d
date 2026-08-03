@@ -33,6 +33,15 @@ public class GameOverScreen implements Screen {
     // retry" area for the same reason (avoid accidental hits).
     private static final float BACK_TO_MENU_ZONE_HEIGHT = 100f;
 
+    // Press Start 2P (Next Step 11) is a lot wider/taller per line than the
+    // default BitmapFont this screen's fixed height-fraction/pixel-offset
+    // layout was tuned for -- at full HudFontScale, several lines here
+    // overflow the window horizontally or collide vertically. Shrinking
+    // just for this screen keeps the existing layout math valid without
+    // reworking it; this screen is flagged for a real redesign later
+    // anyway, so a rescale (not a layout change) is the appropriate fix now.
+    private static final float AUX_TEXT_SCALE = 0.6f;
+
     private final Game game;
     private final GameplayScreen gameplayScreen;
     private final MainMenuScreen mainMenuScreen;
@@ -54,7 +63,7 @@ public class GameOverScreen implements Screen {
         hudCamera = new OrthographicCamera();
         hudCamera.setToOrtho(false, Gdx.graphics.getWidth(), Gdx.graphics.getHeight());
         batch = new SpriteBatch();
-        font = new BitmapFont();
+        font = HudFont.generate();
         font.setColor(Color.WHITE);
         updateFontScale();
     }
@@ -124,7 +133,7 @@ public class GameOverScreen implements Screen {
     }
 
     private void updateFontScale() {
-        font.getData().setScale(HudFontScale.forScreenHeight(Gdx.graphics.getHeight()));
+        font.getData().setScale(HudFontScale.forScreenHeight(Gdx.graphics.getHeight()) * AUX_TEXT_SCALE);
     }
 
     @Override

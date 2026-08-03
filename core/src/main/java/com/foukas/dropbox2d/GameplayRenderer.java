@@ -21,7 +21,6 @@ import com.foukas.dropbox2d.fx.DepthAtmosphere;
 import com.foukas.dropbox2d.fx.MotionTrail;
 import com.foukas.dropbox2d.fx.ParticleSystem;
 import com.foukas.dropbox2d.fx.ScreenShake;
-import com.foukas.dropbox2d.monetization.AdProvider;
 import com.foukas.dropbox2d.progression.PlayerProgress;
 import com.foukas.dropbox2d.progression.SkinTier;
 
@@ -80,10 +79,22 @@ public class GameplayRenderer {
     private static final float TRAIL_MIN_SIZE_FRACTION = 0.3f;
     private static final float TRAIL_MAX_SIZE_FRACTION = 0.7f;
 
+    // HUD layout (Next Step 11) -- distinct positioned elements instead of a
+    // single StringBuilder dump, so the HUD reads as a deliberate interface
+    // rather than debug text (the complaint that started this whole
+    // redesign). Scales are expressed as multipliers of the normal
+    // HudFontScale-driven base scale, not absolute pixel sizes, so this
+    // still tracks screen size the same way the old uniform text did.
+    private static final float HUD_MARGIN = 20f;
+    private static final float HUD_DEPTH_SCALE = 1.8f;
+    private static final float HUD_STAT_SCALE = 0.85f;
+    private static final Color HUD_STAT_COLOR = new Color(1f, 1f, 1f, 0.75f);
+    private static final float HUD_MARKER_RADIUS = 6f;
+    private static final float HUD_MARKER_TEXT_GAP = 6f;
+
     private final ScreenShake screenShake;
     private final ParticleSystem particleSystem;
     private final PlayerProgress playerProgress;
-    private final AdProvider adProvider;
 
     private final OrthographicCamera hudCamera;
     private final ShapeRenderer shapeRenderer;
@@ -102,17 +113,16 @@ public class GameplayRenderer {
     private final CrtEffect crtEffect;
 
     GameplayRenderer(ScreenShake screenShake, ParticleSystem particleSystem,
-                      PlayerProgress playerProgress, AdProvider adProvider) {
+                      PlayerProgress playerProgress) {
         this.screenShake = screenShake;
         this.particleSystem = particleSystem;
         this.playerProgress = playerProgress;
-        this.adProvider = adProvider;
 
         hudCamera = new OrthographicCamera();
         hudCamera.setToOrtho(false, Gdx.graphics.getWidth(), Gdx.graphics.getHeight());
         shapeRenderer = new ShapeRenderer();
         batch = new SpriteBatch();
-        font = new BitmapFont();
+        font = HudFont.generate();
 
         vfxManager = new VfxManager(Pixmap.Format.RGBA8888, Gdx.graphics.getWidth(), Gdx.graphics.getHeight());
         bloomEffect = new BloomEffect();
@@ -177,28 +187,14 @@ public class GameplayRenderer {
         if (paused) {
             drawPauseDim();
         }
+        drawHudMarkers(screen);
 
         batch.setProjectionMatrix(hudCamera.combined);
         batch.begin();
-        font.setColor(Color.WHITE);
-        StringBuilder label = new StringBuilder("Depth: ").append((int) screen.getDepthScore()).append("m");
-        if (screen.getPowerUpManager().isActive()) {
-            label.append(String.format("\n%s: %.1fs", displayName(screen.getPowerUpManager().getActiveType()), screen.getPowerUpManager().getRemaining()));
-        }
-        label.append(String.format("\nBest: %dm   Streak: %dd   Controls: %s", (int) playerProgress.getBestDepth(), playerProgress.getStreak(), screen.isUseTilt() ? "TILT" : "TAP"));
-        if (gameOver) {
-            label.append("\nGAME OVER -- tap to retry");
-        }
-        font.draw(batch, label.toString(), 20f, Gdx.graphics.getHeight() - 20f);
+        drawHudText(screen);
 
         drawComboMultiplier(screen);
         drawToast(screen);
-        if (gameOver) {
-            drawControlToggleHint(screen);
-            if (adProvider.isRewardedAdReady()) {
-                drawRewardedAdHint();
-            }
-        }
         if (paused) {
             drawPauseText();
         }
@@ -232,15 +228,88 @@ public class GameplayRenderer {
         font.draw(batch, "Tap here to quit to menu", 0f, font.getLineHeight() + 10f, width, com.badlogic.gdx.utils.Align.center, false);
     }
 
-    private void drawControlToggleHint(GameplayScreen screen) {
-        String hint = "Tap here to switch to " + (screen.isUseTilt() ? "TAP" : "TILT");
-        font.draw(batch, hint, 0f, Gdx.graphics.getHeight() - 10f, Gdx.graphics.getWidth(), com.badlogic.gdx.utils.Align.center, false);
+    /** Geometric markers (power-up indicator dot, TAP/TILT badge) for the HUD
+     * -- a separate ShapeRenderer pass, called BEFORE batch.begin() (see
+     * draw()), same reason as drawPauseDim(). Positions are derived from the
+     * same font-metric math drawHudText() uses so the two stay aligned
+     * without sharing mutable state between them. */
+    private void drawHudMarkers(GameplayScreen screen) {
+        shapeRenderer.setProjectionMatrix(hudCamera.combined);
+        shapeRenderer.begin(ShapeRenderer.ShapeType.Filled);
+
+        float height = Gdx.graphics.getHeight();
+        float baseLineHeight = font.getLineHeight();
+        float statLineHeight = baseLineHeight * HUD_STAT_SCALE;
+
+        if (screen.getPowerUpManager().isActive()) {
+            float depthLineHeight = baseLineHeight * HUD_DEPTH_SCALE;
+            float markerY = height - HUD_MARGIN - depthLineHeight - statLineHeight / 2f;
+            shapeRenderer.setColor(WRECKING_BALL_COLOR);
+            shapeRenderer.circle(HUD_MARGIN + HUD_MARKER_RADIUS, markerY, HUD_MARKER_RADIUS, 12);
+        }
+
+        drawControlsMarker(screen.isUseTilt(), statLineHeight);
+
+        shapeRenderer.end();
     }
 
-    private void drawRewardedAdHint() {
-        String hint = "Tap here for a free Wrecking Ball (watch ad)";
-        float y = Gdx.graphics.getHeight() - (GameplayScreen.CONTROL_TOGGLE_ZONE_HEIGHT + GameplayScreen.AD_OFFER_ZONE_HEIGHT) / 2f;
-        font.draw(batch, hint, 0f, y, Gdx.graphics.getWidth(), com.badlogic.gdx.utils.Align.center, false);
+    /** Circle for TAP, diamond for TILT -- a shape difference reads at a
+     * glance without needing a text label, unlike the old raw
+     * "Controls: TAP" text this replaces. */
+    private void drawControlsMarker(boolean useTilt, float statLineHeight) {
+        float cx = HUD_MARGIN + HUD_MARKER_RADIUS;
+        float cy = HUD_MARGIN + statLineHeight / 2f;
+        shapeRenderer.setColor(NORMAL_PLATFORM_COLOR);
+        if (useTilt) {
+            float size = HUD_MARKER_RADIUS * 2f;
+            shapeRenderer.rect(cx - size / 2f, cy - size / 2f, size / 2f, size / 2f, size, size, 1f, 1f, 45f);
+        } else {
+            shapeRenderer.circle(cx, cy, HUD_MARKER_RADIUS, 12);
+        }
+    }
+
+    /** Depth prominent and unlabeled (top-left, Next Step 11's main
+     * requirement) -- Best/Streak (top-right) and the controls badge
+     * (bottom-left) deliberately smaller so they read as secondary stats
+     * rather than competing with the depth number. Their marker dots/shapes
+     * are drawn separately by drawHudMarkers(); this method only calls
+     * font.draw(). Replaces the pre-redesign single StringBuilder dump.
+     * The GAME OVER text this HUD used to show for one transitional frame
+     * before game.setScreen(gameOverScreen) fired is gone too --
+     * GameOverScreen has fully owned that screen since Next Step 5. */
+    private void drawHudText(GameplayScreen screen) {
+        float width = Gdx.graphics.getWidth();
+        float height = Gdx.graphics.getHeight();
+        float baseScale = font.getData().scaleX;
+
+        font.setColor(Color.WHITE);
+        font.getData().setScale(baseScale * HUD_DEPTH_SCALE);
+        float depthLineHeight = font.getLineHeight();
+        font.draw(batch, (int) screen.getDepthScore() + "m", HUD_MARGIN, height - HUD_MARGIN);
+
+        font.getData().setScale(baseScale * HUD_STAT_SCALE);
+        float statLineHeight = font.getLineHeight();
+
+        if (screen.getPowerUpManager().isActive()) {
+            String countdown = String.format("%s %.1fs", displayName(screen.getPowerUpManager().getActiveType()), screen.getPowerUpManager().getRemaining());
+            float textX = HUD_MARGIN + HUD_MARKER_RADIUS * 2f + HUD_MARKER_TEXT_GAP;
+            float textY = height - HUD_MARGIN - depthLineHeight;
+            font.draw(batch, countdown, textX, textY);
+        }
+
+        font.setColor(HUD_STAT_COLOR);
+        float statRight = width - HUD_MARGIN;
+        float bestY = height - HUD_MARGIN;
+        font.draw(batch, "BEST " + (int) playerProgress.getBestDepth() + "m", 0f, bestY, statRight, com.badlogic.gdx.utils.Align.right, false);
+        float streakY = bestY - statLineHeight;
+        font.draw(batch, "STREAK " + playerProgress.getStreak() + "d", 0f, streakY, statRight, com.badlogic.gdx.utils.Align.right, false);
+
+        String controlsText = screen.isUseTilt() ? "TILT" : "TAP";
+        float controlsX = HUD_MARGIN + HUD_MARKER_RADIUS * 2f + HUD_MARKER_TEXT_GAP;
+        font.draw(batch, controlsText, controlsX, HUD_MARGIN + statLineHeight);
+
+        font.setColor(Color.WHITE);
+        font.getData().setScale(baseScale);
     }
 
     /** Static sky gradient (unchanged from Next Step 7, screen-space) plus a

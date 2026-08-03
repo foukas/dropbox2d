@@ -7,4 +7,13 @@ dependencies {
     implementation "com.badlogicgames.gdx:gdx-backend-lwjgl3:$gdxVersion"
     implementation "com.badlogicgames.gdx:gdx-platform:$gdxVersion:natives-desktop"
     implementation "com.badlogicgames.gdx:gdx-box2d-platform:$gdxVersion:natives-desktop"
+    implementation "com.badlogicgames.gdx:gdx-freetype-platform:$gdxVersion:natives-desktop"
 }
+
+// This project has never loaded an asset file before (ShapeRenderer/default-
+// BitmapFont only, until Next Step 11's real font). android/assets is the
+// canonical assets folder (wired via AGP's sourceSets); adding it as a
+// desktop resources dir puts the same files on the runtime classpath so
+// Gdx.files.internal(...) finds them from `gradlew :desktop:run` too,
+// without duplicating the font file into a second location.
+sourceSets.main.resources.srcDirs += ['../android/assets']

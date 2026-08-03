@@ -217,7 +217,7 @@ public class GameplayScreen implements Screen, GameEventListener {
 
         camera = new OrthographicCamera();
         viewport = new FitViewport(WORLD_WIDTH, WORLD_HEIGHT, camera);
-        renderer = new GameplayRenderer(screenShake, particleSystem, playerProgress, adProvider);
+        renderer = new GameplayRenderer(screenShake, particleSystem, playerProgress);
 
         // Tiers already earned in prior sessions shouldn't re-announce on
         // every app open -- only tiers crossed from here on are new news.

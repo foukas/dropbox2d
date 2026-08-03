@@ -26,6 +26,12 @@ import com.foukas.dropbox2d.progression.PlayerProgress;
  */
 public class MainMenuScreen implements Screen {
 
+    // Same rationale as GameOverScreen.AUX_TEXT_SCALE -- Press Start 2P
+    // (Next Step 11) overflows this screen's fixed height-fraction layout
+    // at full HudFontScale; a rescale is the minimal fix, a real redesign
+    // is deferred.
+    private static final float AUX_TEXT_SCALE = 0.6f;
+
     private final Game game;
     private final GameplayScreen gameplayScreen;
     private final PlayerProgress playerProgress;
@@ -42,7 +48,7 @@ public class MainMenuScreen implements Screen {
         hudCamera = new OrthographicCamera();
         hudCamera.setToOrtho(false, Gdx.graphics.getWidth(), Gdx.graphics.getHeight());
         batch = new SpriteBatch();
-        font = new BitmapFont();
+        font = HudFont.generate();
         font.setColor(Color.WHITE);
         updateFontScale();
     }
@@ -90,7 +96,7 @@ public class MainMenuScreen implements Screen {
     }
 
     private void updateFontScale() {
-        font.getData().setScale(HudFontScale.forScreenHeight(Gdx.graphics.getHeight()));
+        font.getData().setScale(HudFontScale.forScreenHeight(Gdx.graphics.getHeight()) * AUX_TEXT_SCALE);
     }
 
     @Override
