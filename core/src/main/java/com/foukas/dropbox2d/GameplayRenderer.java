@@ -21,6 +21,7 @@ import com.foukas.dropbox2d.fx.DepthAtmosphere;
 import com.foukas.dropbox2d.fx.MotionTrail;
 import com.foukas.dropbox2d.fx.ParticleSystem;
 import com.foukas.dropbox2d.fx.ScreenShake;
+import com.foukas.dropbox2d.platform.SafeAreaInsets;
 import com.foukas.dropbox2d.progression.PlayerProgress;
 import com.foukas.dropbox2d.progression.SkinTier;
 
@@ -85,7 +86,14 @@ public class GameplayRenderer {
     // redesign). Scales are expressed as multipliers of the normal
     // HudFontScale-driven base scale, not absolute pixel sizes, so this
     // still tracks screen size the same way the old uniform text did.
-    private static final float HUD_MARGIN = 20f;
+    // Corner text needs more breathing room than an icon does -- device
+    // verification (Next Step 12) found the depth/Best/Streak text still
+    // clipped a little under the physical rounded screen corners even after
+    // accounting for the real system-bar insets (those only cover the
+    // status/nav bar height, not the corner radius). A fixed extra buffer is
+    // a simpler, universal-enough fix than querying the per-device corner
+    // radius (RoundedCorner API is 31+; minSdk here is 24).
+    private static final float HUD_TEXT_MARGIN = 40f;
     private static final float HUD_DEPTH_SCALE = 1.8f;
     private static final float HUD_STAT_SCALE = 0.85f;
     private static final Color HUD_STAT_COLOR = new Color(1f, 1f, 1f, 0.75f);
@@ -95,6 +103,7 @@ public class GameplayRenderer {
     private final ScreenShake screenShake;
     private final ParticleSystem particleSystem;
     private final PlayerProgress playerProgress;
+    private final SafeAreaInsets safeAreaInsets;
 
     private final OrthographicCamera hudCamera;
     private final ShapeRenderer shapeRenderer;
@@ -113,10 +122,11 @@ public class GameplayRenderer {
     private final CrtEffect crtEffect;
 
     GameplayRenderer(ScreenShake screenShake, ParticleSystem particleSystem,
-                      PlayerProgress playerProgress) {
+                      PlayerProgress playerProgress, SafeAreaInsets safeAreaInsets) {
         this.screenShake = screenShake;
         this.particleSystem = particleSystem;
         this.playerProgress = playerProgress;
+        this.safeAreaInsets = safeAreaInsets;
 
         hudCamera = new OrthographicCamera();
         hudCamera.setToOrtho(false, Gdx.graphics.getWidth(), Gdx.graphics.getHeight());
@@ -151,7 +161,27 @@ public class GameplayRenderer {
         Gdx.gl.glBlendFunc(GL20.GL_SRC_ALPHA, GL20.GL_ONE_MINUS_SRC_ALPHA);
 
         OrthographicCamera camera = screen.getCamera();
-        drawBackground(screen, camera);
+        drawSkyGradient();
+
+        // vfxManager.beginInputCapture() (above) rebinds its own FBO, which
+        // resets the GL viewport to the FBO's full pixel size -- discarding
+        // the aspect-correct viewport GameplayScreen's ExtendViewport
+        // applied on resize(). Only world-space content (grid, platforms,
+        // ball, trail) needs that viewport; without re-applying it here,
+        // world geometry gets non-uniformly stretched to fill the full
+        // framebuffer instead (e.g. the ball rendering as an oval) on any
+        // device whose aspect ratio isn't exactly WORLD_WIDTH:WORLD_HEIGHT --
+        // invisible on the 9:16 desktop dev window, visible on an actual
+        // phone. Screen-space content (sky gradient above, HUD below) still
+        // wants the full viewport, so it's restored again after the
+        // world-space block ends.
+        screen.getViewport().apply();
+
+        float saturation = DepthAtmosphere.saturationFor(screen.getDepthScore(), screen.currentSkinTier());
+        shapeRenderer.setProjectionMatrix(camera.combined);
+        shapeRenderer.begin(ShapeRenderer.ShapeType.Filled);
+        drawGridLines(camera, saturation, screen.getViewport().getWorldHeight());
+        shapeRenderer.end();
 
         // Screen shake is applied only to this projection matrix, never to
         // camera.position itself -- game logic (scroll, wall-tracking,
@@ -182,6 +212,11 @@ public class GameplayRenderer {
         drawBallHighlight(ballBody, ballColor);
 
         shapeRenderer.end();
+
+        // Restore the full-framebuffer viewport for the screen-space content
+        // below (pause dim, HUD markers/text) -- see the comment above
+        // screen.getViewport().apply().
+        Gdx.gl.glViewport(0, 0, Gdx.graphics.getWidth(), Gdx.graphics.getHeight());
 
         boolean paused = screen.isPaused();
         if (paused) {
@@ -228,44 +263,35 @@ public class GameplayRenderer {
         font.draw(batch, "Tap here to quit to menu", 0f, font.getLineHeight() + 10f, width, com.badlogic.gdx.utils.Align.center, false);
     }
 
-    /** Geometric markers (power-up indicator dot, TAP/TILT badge) for the HUD
-     * -- a separate ShapeRenderer pass, called BEFORE batch.begin() (see
-     * draw()), same reason as drawPauseDim(). Positions are derived from the
-     * same font-metric math drawHudText() uses so the two stay aligned
-     * without sharing mutable state between them. */
+    /** Power-up indicator dot for the HUD -- a separate ShapeRenderer pass,
+     * called BEFORE batch.begin() (see draw()), same reason as
+     * drawPauseDim(). Position is derived from the same font-metric math
+     * drawHudText() uses so the two stay aligned without sharing mutable
+     * state between them. The bottom-left TAP/TILT marker this used to also
+     * draw is gone (device verification, Next Step 12) -- it left the
+     * bottom-left corner mostly empty background on taller-than-9:16
+     * screens, not worth the corner space once the "TAP"/"TILT" text next
+     * to it (the thing that actually needed the marker for context) was
+     * already dropped for the same reason. */
     private void drawHudMarkers(GameplayScreen screen) {
+        if (!screen.getPowerUpManager().isActive()) {
+            return;
+        }
+
         shapeRenderer.setProjectionMatrix(hudCamera.combined);
         shapeRenderer.begin(ShapeRenderer.ShapeType.Filled);
 
         float height = Gdx.graphics.getHeight();
+        float textMarginLeft = HUD_TEXT_MARGIN + safeAreaInsets.left();
+        float textMarginTop = HUD_TEXT_MARGIN + safeAreaInsets.top();
         float baseLineHeight = font.getLineHeight();
         float statLineHeight = baseLineHeight * HUD_STAT_SCALE;
-
-        if (screen.getPowerUpManager().isActive()) {
-            float depthLineHeight = baseLineHeight * HUD_DEPTH_SCALE;
-            float markerY = height - HUD_MARGIN - depthLineHeight - statLineHeight / 2f;
-            shapeRenderer.setColor(WRECKING_BALL_COLOR);
-            shapeRenderer.circle(HUD_MARGIN + HUD_MARKER_RADIUS, markerY, HUD_MARKER_RADIUS, 12);
-        }
-
-        drawControlsMarker(screen.isUseTilt(), statLineHeight);
+        float depthLineHeight = baseLineHeight * HUD_DEPTH_SCALE;
+        float markerY = height - textMarginTop - depthLineHeight - statLineHeight / 2f;
+        shapeRenderer.setColor(WRECKING_BALL_COLOR);
+        shapeRenderer.circle(textMarginLeft + HUD_MARKER_RADIUS, markerY, HUD_MARKER_RADIUS, 12);
 
         shapeRenderer.end();
-    }
-
-    /** Circle for TAP, diamond for TILT -- a shape difference reads at a
-     * glance without needing a text label, unlike the old raw
-     * "Controls: TAP" text this replaces. */
-    private void drawControlsMarker(boolean useTilt, float statLineHeight) {
-        float cx = HUD_MARGIN + HUD_MARKER_RADIUS;
-        float cy = HUD_MARGIN + statLineHeight / 2f;
-        shapeRenderer.setColor(NORMAL_PLATFORM_COLOR);
-        if (useTilt) {
-            float size = HUD_MARKER_RADIUS * 2f;
-            shapeRenderer.rect(cx - size / 2f, cy - size / 2f, size / 2f, size / 2f, size, size, 1f, 1f, 45f);
-        } else {
-            shapeRenderer.circle(cx, cy, HUD_MARKER_RADIUS, 12);
-        }
     }
 
     /** Depth prominent and unlabeled (top-left, Next Step 11's main
@@ -281,65 +307,69 @@ public class GameplayRenderer {
         float width = Gdx.graphics.getWidth();
         float height = Gdx.graphics.getHeight();
         float baseScale = font.getData().scaleX;
+        // Android targets SDK 35+, where edge-to-edge is enforced and can't
+        // be opted out of -- content draws under the status/gesture-nav
+        // bars, so corner-positioned HUD text needs the real system-bar
+        // inset added on top of HUD_TEXT_MARGIN or it renders (partly)
+        // behind them. Zero on desktop (NoOpSafeAreaInsets).
+        float marginLeft = HUD_TEXT_MARGIN + safeAreaInsets.left();
+        float marginRight = HUD_TEXT_MARGIN + safeAreaInsets.right();
+        float marginTop = HUD_TEXT_MARGIN + safeAreaInsets.top();
 
         font.setColor(Color.WHITE);
         font.getData().setScale(baseScale * HUD_DEPTH_SCALE);
         float depthLineHeight = font.getLineHeight();
-        font.draw(batch, (int) screen.getDepthScore() + "m", HUD_MARGIN, height - HUD_MARGIN);
+        font.draw(batch, (int) screen.getDepthScore() + "m", marginLeft, height - marginTop);
 
         font.getData().setScale(baseScale * HUD_STAT_SCALE);
         float statLineHeight = font.getLineHeight();
 
         if (screen.getPowerUpManager().isActive()) {
             String countdown = String.format("%s %.1fs", displayName(screen.getPowerUpManager().getActiveType()), screen.getPowerUpManager().getRemaining());
-            float textX = HUD_MARGIN + HUD_MARKER_RADIUS * 2f + HUD_MARKER_TEXT_GAP;
-            float textY = height - HUD_MARGIN - depthLineHeight;
+            float textX = marginLeft + HUD_MARKER_RADIUS * 2f + HUD_MARKER_TEXT_GAP;
+            float textY = height - marginTop - depthLineHeight;
             font.draw(batch, countdown, textX, textY);
         }
 
         font.setColor(HUD_STAT_COLOR);
-        float statRight = width - HUD_MARGIN;
-        float bestY = height - HUD_MARGIN;
+        float statRight = width - marginRight;
+        float bestY = height - marginTop;
         font.draw(batch, "BEST " + (int) playerProgress.getBestDepth() + "m", 0f, bestY, statRight, com.badlogic.gdx.utils.Align.right, false);
         float streakY = bestY - statLineHeight;
         font.draw(batch, "STREAK " + playerProgress.getStreak() + "d", 0f, streakY, statRight, com.badlogic.gdx.utils.Align.right, false);
-
-        String controlsText = screen.isUseTilt() ? "TILT" : "TAP";
-        float controlsX = HUD_MARGIN + HUD_MARKER_RADIUS * 2f + HUD_MARKER_TEXT_GAP;
-        font.draw(batch, controlsText, controlsX, HUD_MARGIN + statLineHeight);
 
         font.setColor(Color.WHITE);
         font.getData().setScale(baseScale);
     }
 
-    /** Static sky gradient (unchanged from Next Step 7, screen-space) plus a
-     * scrolling grid-horizon (Next Step 8): world-space horizontal lines
-     * that scroll naturally with the camera -- no manual offset tracking
-     * needed, since drawing them with the world camera's own projection
-     * matrix makes that automatic. Sparse and nearly invisible near the
-     * surface, denser and fully neon-bright at depth, via
-     * DepthAtmosphere.saturationFor() -- "depth is the light source"
-     * (Cross-Model Perspective). */
-    private void drawBackground(GameplayScreen screen, OrthographicCamera camera) {
+    /** Static sky gradient (unchanged from Next Step 7), drawn screen-space
+     * at the full framebuffer viewport so it covers the whole device screen
+     * -- including any letterbox area outside the world camera's
+     * aspect-correct viewport (see the comment in draw() around
+     * screen.getViewport().apply()) -- rather than being confined to it. */
+    private void drawSkyGradient() {
         shapeRenderer.setProjectionMatrix(hudCamera.combined);
         shapeRenderer.begin(ShapeRenderer.ShapeType.Filled);
         float w = Gdx.graphics.getWidth();
         float h = Gdx.graphics.getHeight();
         shapeRenderer.rect(0f, 0f, w, h, BG_BOTTOM_COLOR, BG_BOTTOM_COLOR, BG_TOP_COLOR, BG_TOP_COLOR);
         shapeRenderer.end();
-
-        float saturation = DepthAtmosphere.saturationFor(screen.getDepthScore(), screen.currentSkinTier());
-
-        shapeRenderer.setProjectionMatrix(camera.combined);
-        shapeRenderer.begin(ShapeRenderer.ShapeType.Filled);
-        drawGridLines(camera, saturation);
-        shapeRenderer.end();
     }
 
-    private void drawGridLines(OrthographicCamera camera, float saturation) {
+    /** Scrolling grid-horizon (Next Step 8): world-space horizontal lines
+     * that scroll naturally with the camera -- no manual offset tracking
+     * needed, since drawing them with the world camera's own projection
+     * matrix makes that automatic. Sparse and nearly invisible near the
+     * surface, denser and fully neon-bright at depth, via
+     * DepthAtmosphere.saturationFor() -- "depth is the light source"
+     * (Cross-Model Perspective). viewportWorldHeight is the live
+     * ExtendViewport height (Next Step 12), not the WORLD_HEIGHT constant --
+     * it's larger on screens taller than 9:16, and using the fixed constant
+     * would leave the top/bottom of an extended viewport ungridded. */
+    private void drawGridLines(OrthographicCamera camera, float saturation, float viewportWorldHeight) {
         float spacing = MathUtils.lerp(GRID_LINE_MAX_SPACING, GRID_LINE_MIN_SPACING, saturation);
-        float viewBottom = camera.position.y - GameplayScreen.WORLD_HEIGHT / 2f;
-        float viewTop = camera.position.y + GameplayScreen.WORLD_HEIGHT / 2f;
+        float viewBottom = camera.position.y - viewportWorldHeight / 2f;
+        float viewTop = camera.position.y + viewportWorldHeight / 2f;
         float firstLineY = MathUtils.floor(viewBottom / spacing) * spacing;
 
         Color glowColor = GRID_LINE_COLOR.cpy();

@@ -15,7 +15,7 @@ import com.badlogic.gdx.physics.box2d.Fixture;
 import com.badlogic.gdx.physics.box2d.FixtureDef;
 import com.badlogic.gdx.physics.box2d.PolygonShape;
 import com.badlogic.gdx.physics.box2d.World;
-import com.badlogic.gdx.utils.viewport.FitViewport;
+import com.badlogic.gdx.utils.viewport.ExtendViewport;
 import com.badlogic.gdx.utils.viewport.Viewport;
 import com.foukas.dropbox2d.events.BallOffTop;
 import com.foukas.dropbox2d.events.ContactDispatcher;
@@ -34,6 +34,7 @@ import com.foukas.dropbox2d.input.TapInputProvider;
 import com.foukas.dropbox2d.input.TiltInputProvider;
 import com.foukas.dropbox2d.generation.PlatformType;
 import com.foukas.dropbox2d.monetization.AdProvider;
+import com.foukas.dropbox2d.platform.SafeAreaInsets;
 import com.foukas.dropbox2d.physics.DebrisManager;
 import com.foukas.dropbox2d.physics.PhysicsNaNGuard;
 import com.foukas.dropbox2d.powerups.PowerUpManager;
@@ -59,6 +60,13 @@ public class GameplayScreen implements Screen, GameEventListener {
     // ----- World tuning (placeholder values -- expected to be re-tuned by feel) -----
     // Package-private: also read by GameplayRenderer to size the scrolling
     // grid-horizon background (Next Step 8) to the visible world range.
+    // With ExtendViewport (Next Step 12), these are MINIMUMS, not the exact
+    // visible size -- on any screen taller than 9:16 (most current phones),
+    // the actual visible height extends beyond WORLD_HEIGHT so the play area
+    // fills the screen instead of letterboxing top/bottom. Code that needs
+    // the real current visible height should read viewport.getWorldHeight()
+    // (see manageRows()/checkGameOver()/updateCameraAndScroll()), not this
+    // constant, for exactly that reason.
     static final float WORLD_WIDTH = 9f;
     static final float WORLD_HEIGHT = 16f;
     private static final float GRAVITY_Y = -25f;
@@ -208,7 +216,7 @@ public class GameplayScreen implements Screen, GameEventListener {
     private float physicsAccumulator;
 
     public GameplayScreen(Game game, PlayerProgress playerProgress, ScreenShake screenShake,
-                           ParticleSystem particleSystem, AdProvider adProvider) {
+                           ParticleSystem particleSystem, AdProvider adProvider, SafeAreaInsets safeAreaInsets) {
         this.game = game;
         this.playerProgress = playerProgress;
         this.screenShake = screenShake;
@@ -216,8 +224,17 @@ public class GameplayScreen implements Screen, GameEventListener {
         this.adProvider = adProvider;
 
         camera = new OrthographicCamera();
-        viewport = new FitViewport(WORLD_WIDTH, WORLD_HEIGHT, camera);
-        renderer = new GameplayRenderer(screenShake, particleSystem, playerProgress);
+        // ExtendViewport, not FitViewport -- device verification (Next Step
+        // 12) found FitViewport letterboxing top/bottom on screens taller
+        // than 9:16 (i.e. most current phones), leaving visible background
+        // strips above/below actual gameplay. ExtendViewport keeps
+        // WORLD_WIDTH fixed (already matches full screen width, since 9 is
+        // the constraining dimension here) and extends world height to fill
+        // the rest of the screen instead -- showing more of the level
+        // vertically on taller screens rather than shrinking/bordering it,
+        // which suits an endless vertical faller better anyway.
+        viewport = new ExtendViewport(WORLD_WIDTH, WORLD_HEIGHT, camera);
+        renderer = new GameplayRenderer(screenShake, particleSystem, playerProgress, safeAreaInsets);
 
         // Tiers already earned in prior sessions shouldn't re-announce on
         // every app open -- only tiers crossed from here on are new news.
@@ -711,7 +728,7 @@ public class GameplayScreen implements Screen, GameEventListener {
         leftWall.setTransform(leftWall.getPosition().x, camera.position.y, 0f);
         rightWall.setTransform(rightWall.getPosition().x, camera.position.y, 0f);
 
-        float recycleAboveY = camera.position.y + WORLD_HEIGHT;
+        float recycleAboveY = camera.position.y + viewport.getWorldHeight();
         debrisManager.update(delta, recycleAboveY);
     }
 
@@ -732,7 +749,7 @@ public class GameplayScreen implements Screen, GameEventListener {
         // is a basic hygiene bug, not the kind of "engineering rigor" that
         // was scoped out (that was about event systems/validators/tests,
         // and those are now built -- see the class-level note above).
-        float recycleAboveY = camera.position.y + WORLD_HEIGHT;
+        float recycleAboveY = camera.position.y + viewport.getWorldHeight();
         List<PlatformRow> toRemove = new ArrayList<>();
         for (PlatformRow row : rows) {
             if (row.y > recycleAboveY) {
@@ -749,7 +766,7 @@ public class GameplayScreen implements Screen, GameEventListener {
 
     private void checkGameOver() {
         float ballY = ballBody.getPosition().y;
-        if (ballY - camera.position.y > WORLD_HEIGHT / 2f + TOP_MARGIN) {
+        if (ballY - camera.position.y > viewport.getWorldHeight() / 2f + TOP_MARGIN) {
             eventBus.dispatch(new BallOffTop());
         }
     }
@@ -788,6 +805,10 @@ public class GameplayScreen implements Screen, GameEventListener {
 
     OrthographicCamera getCamera() {
         return camera;
+    }
+
+    Viewport getViewport() {
+        return viewport;
     }
 
     List<PlatformRow> getRows() {

@@ -8,6 +8,7 @@ import com.foukas.dropbox2d.fx.ParticleSystem;
 import com.foukas.dropbox2d.fx.ScreenShake;
 import com.foukas.dropbox2d.monetization.AdProvider;
 import com.foukas.dropbox2d.monetization.NoOpAdProvider;
+import com.foukas.dropbox2d.platform.SafeAreaInsets;
 import com.foukas.dropbox2d.progression.PlayerProgress;
 
 /**
@@ -23,6 +24,8 @@ import com.foukas.dropbox2d.progression.PlayerProgress;
  */
 public class DropGame extends Game {
 
+    private final SafeAreaInsets safeAreaInsets;
+
     private PlayerProgress playerProgress;
     private ScreenShake screenShake;
     private ParticleSystem particleSystem;
@@ -30,6 +33,10 @@ public class DropGame extends Game {
     private GameplayScreen gameplayScreen;
     private MainMenuScreen mainMenuScreen;
     private GameOverScreen gameOverScreen;
+
+    public DropGame(SafeAreaInsets safeAreaInsets) {
+        this.safeAreaInsets = safeAreaInsets;
+    }
 
     @Override
     public void create() {
@@ -45,7 +52,7 @@ public class DropGame extends Game {
         particleSystem = new ParticleSystem();
         adProvider = new NoOpAdProvider();
 
-        gameplayScreen = new GameplayScreen(this, playerProgress, screenShake, particleSystem, adProvider);
+        gameplayScreen = new GameplayScreen(this, playerProgress, screenShake, particleSystem, adProvider, safeAreaInsets);
         mainMenuScreen = new MainMenuScreen(this, gameplayScreen, playerProgress);
         gameOverScreen = new GameOverScreen(this, gameplayScreen, mainMenuScreen, playerProgress, adProvider);
         // Circular reference: GameplayScreen needs to transition to
