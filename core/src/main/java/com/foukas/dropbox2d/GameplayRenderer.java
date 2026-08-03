@@ -13,6 +13,7 @@ import com.badlogic.gdx.physics.box2d.Body;
 import com.badlogic.gdx.physics.box2d.Fixture;
 import com.badlogic.gdx.physics.box2d.PolygonShape;
 import com.badlogic.gdx.math.Vector2;
+import com.foukas.dropbox2d.fx.DepthAtmosphere;
 import com.foukas.dropbox2d.fx.ParticleSystem;
 import com.foukas.dropbox2d.fx.ScreenShake;
 import com.foukas.dropbox2d.monetization.AdProvider;
@@ -46,6 +47,22 @@ public class GameplayRenderer {
     private static final Color BG_BOTTOM_COLOR = new Color(0.4157f, 0.1725f, 0.5686f, 1f); // #6a2c91 mid purple-magenta
     private static final Color COMBO_TEXT_COLOR = new Color(1f, 0.8824f, 0.3020f, 1f); // #ffe14d gold
     private static final Color PAUSE_DIM_COLOR = new Color(0f, 0f, 0f, 0.6f);
+
+    // Scrolling grid-horizon (Next Step 8) -- the vivid pink from the
+    // original 3-option palette mockup (see Next Step 7), held back from
+    // the base gradient and used here instead as the "reward" color that
+    // only fully emerges at depth, via DepthAtmosphere.saturationFor().
+    // Drawn as filled rects, not GL_LINES -- glLineWidth beyond 1px is
+    // unreliable/ignored on most GL drivers, so hairline GL_LINES read as
+    // flat clutter with no glow. A dim, wide "halo" rect behind a bright,
+    // thin "core" rect fakes a glow, same trick already used for the ball
+    // highlight and platform top-edge highlight in this file.
+    private static final Color GRID_LINE_COLOR = new Color(1f, 0.1804f, 0.7686f, 1f); // #ff2ec4
+    private static final float GRID_LINE_MAX_SPACING = 4f; // world units, near the surface (sparse)
+    private static final float GRID_LINE_MIN_SPACING = 1.5f; // world units, at depth (dense)
+    private static final float GRID_CORE_THICKNESS = 0.025f; // world units, constant
+    private static final float GRID_GLOW_MIN_THICKNESS = 0.08f;
+    private static final float GRID_GLOW_MAX_THICKNESS = 0.22f;
 
     private final ScreenShake screenShake;
     private final ParticleSystem particleSystem;
@@ -82,9 +99,9 @@ public class GameplayRenderer {
         Gdx.gl.glEnable(GL20.GL_BLEND);
         Gdx.gl.glBlendFunc(GL20.GL_SRC_ALPHA, GL20.GL_ONE_MINUS_SRC_ALPHA);
 
-        drawBackground();
-
         OrthographicCamera camera = screen.getCamera();
+        drawBackground(screen, camera);
+
         // Screen shake is applied only to this projection matrix, never to
         // camera.position itself -- game logic (scroll, wall-tracking,
         // catch-up) reads camera.position and must never see the jitter.
@@ -180,13 +197,48 @@ public class GameplayRenderer {
         font.draw(batch, hint, 0f, y, Gdx.graphics.getWidth(), com.badlogic.gdx.utils.Align.center, false);
     }
 
-    private void drawBackground() {
+    /** Static sky gradient (unchanged from Next Step 7, screen-space) plus a
+     * scrolling grid-horizon (Next Step 8): world-space horizontal lines
+     * that scroll naturally with the camera -- no manual offset tracking
+     * needed, since drawing them with the world camera's own projection
+     * matrix makes that automatic. Sparse and nearly invisible near the
+     * surface, denser and fully neon-bright at depth, via
+     * DepthAtmosphere.saturationFor() -- "depth is the light source"
+     * (Cross-Model Perspective). */
+    private void drawBackground(GameplayScreen screen, OrthographicCamera camera) {
         shapeRenderer.setProjectionMatrix(hudCamera.combined);
         shapeRenderer.begin(ShapeRenderer.ShapeType.Filled);
         float w = Gdx.graphics.getWidth();
         float h = Gdx.graphics.getHeight();
         shapeRenderer.rect(0f, 0f, w, h, BG_BOTTOM_COLOR, BG_BOTTOM_COLOR, BG_TOP_COLOR, BG_TOP_COLOR);
         shapeRenderer.end();
+
+        float saturation = DepthAtmosphere.saturationFor(screen.getDepthScore(), screen.currentSkinTier());
+
+        shapeRenderer.setProjectionMatrix(camera.combined);
+        shapeRenderer.begin(ShapeRenderer.ShapeType.Filled);
+        drawGridLines(camera, saturation);
+        shapeRenderer.end();
+    }
+
+    private void drawGridLines(OrthographicCamera camera, float saturation) {
+        float spacing = MathUtils.lerp(GRID_LINE_MAX_SPACING, GRID_LINE_MIN_SPACING, saturation);
+        float viewBottom = camera.position.y - GameplayScreen.WORLD_HEIGHT / 2f;
+        float viewTop = camera.position.y + GameplayScreen.WORLD_HEIGHT / 2f;
+        float firstLineY = MathUtils.floor(viewBottom / spacing) * spacing;
+
+        Color glowColor = GRID_LINE_COLOR.cpy();
+        glowColor.a = MathUtils.lerp(0.02f, 0.35f, saturation);
+        Color coreColor = GRID_LINE_COLOR.cpy().lerp(Color.WHITE, 0.3f);
+        coreColor.a = MathUtils.lerp(0.1f, 0.9f, saturation);
+        float glowThickness = MathUtils.lerp(GRID_GLOW_MIN_THICKNESS, GRID_GLOW_MAX_THICKNESS, saturation);
+
+        for (float y = firstLineY; y <= viewTop; y += spacing) {
+            shapeRenderer.setColor(glowColor);
+            shapeRenderer.rect(0f, y - glowThickness / 2f, GameplayScreen.WORLD_WIDTH, glowThickness);
+            shapeRenderer.setColor(coreColor);
+            shapeRenderer.rect(0f, y - GRID_CORE_THICKNESS / 2f, GameplayScreen.WORLD_WIDTH, GRID_CORE_THICKNESS);
+        }
     }
 
     /** A small catchlight fixed to the ball's own rotating frame, not the

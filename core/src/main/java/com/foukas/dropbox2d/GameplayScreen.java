@@ -55,8 +55,10 @@ import java.util.List;
 public class GameplayScreen implements Screen, GameEventListener {
 
     // ----- World tuning (placeholder values -- expected to be re-tuned by feel) -----
-    private static final float WORLD_WIDTH = 9f;
-    private static final float WORLD_HEIGHT = 16f;
+    // Package-private: also read by GameplayRenderer to size the scrolling
+    // grid-horizon background (Next Step 8) to the visible world range.
+    static final float WORLD_WIDTH = 9f;
+    static final float WORLD_HEIGHT = 16f;
     private static final float GRAVITY_Y = -25f;
 
     // Package-private: also read by GameplayRenderer, which sizes drawn
