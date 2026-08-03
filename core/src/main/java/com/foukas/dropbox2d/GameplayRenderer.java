@@ -14,11 +14,14 @@ import com.badlogic.gdx.physics.box2d.Fixture;
 import com.badlogic.gdx.physics.box2d.PolygonShape;
 import com.badlogic.gdx.math.Vector2;
 import com.foukas.dropbox2d.fx.DepthAtmosphere;
+import com.foukas.dropbox2d.fx.MotionTrail;
 import com.foukas.dropbox2d.fx.ParticleSystem;
 import com.foukas.dropbox2d.fx.ScreenShake;
 import com.foukas.dropbox2d.monetization.AdProvider;
 import com.foukas.dropbox2d.progression.PlayerProgress;
 import com.foukas.dropbox2d.progression.SkinTier;
+
+import java.util.Deque;
 
 /**
  * Extracted from GameplayScreen (plan-eng-review Next Step 1a, 2026-07-29) --
@@ -63,6 +66,15 @@ public class GameplayRenderer {
     private static final float GRID_CORE_THICKNESS = 0.025f; // world units, constant
     private static final float GRID_GLOW_MIN_THICKNESS = 0.08f;
     private static final float GRID_GLOW_MAX_THICKNESS = 0.22f;
+
+    // Ball motion trail (Next Step 9) -- additive blending so overlapping
+    // trail circles brighten instead of just alpha-compositing, giving a
+    // "glowing afterimage" look. Same color as the ball itself (including
+    // wrecking-ball red), fading from newest (front of the deque) to
+    // oldest (back).
+    private static final float TRAIL_MAX_ALPHA = 0.5f;
+    private static final float TRAIL_MIN_SIZE_FRACTION = 0.3f;
+    private static final float TRAIL_MAX_SIZE_FRACTION = 0.7f;
 
     private final ScreenShake screenShake;
     private final ParticleSystem particleSystem;
@@ -125,6 +137,7 @@ public class GameplayRenderer {
         Body ballBody = screen.getBallBody();
         boolean gameOver = screen.getGameOverController().isGameOver();
         Color ballColor = gameOver ? Color.RED : (screen.getPowerUpManager().isActive() ? WRECKING_BALL_COLOR : screen.currentSkinTier().getColor());
+        drawTrail(screen, ballColor);
         shapeRenderer.setColor(ballColor);
         shapeRenderer.circle(ballBody.getPosition().x, ballBody.getPosition().y, GameplayScreen.BALL_RADIUS, 24);
         drawBallHighlight(ballBody, ballColor);
@@ -239,6 +252,35 @@ public class GameplayRenderer {
             shapeRenderer.setColor(coreColor);
             shapeRenderer.rect(0f, y - GRID_CORE_THICKNESS / 2f, GameplayScreen.WORLD_WIDTH, GRID_CORE_THICKNESS);
         }
+    }
+
+    /** Additive-blended fading circles at the ball's recent positions --
+     * flush() before and after the blend-func switch, since ShapeRenderer
+     * batches draw calls and GL state applies at flush time, not at
+     * geometry-submission time; without the flushes, already-queued
+     * platform/debris/particle geometry (or the ball drawn right after)
+     * could render with the wrong blend mode. */
+    private void drawTrail(GameplayScreen screen, Color ballColor) {
+        Deque<MotionTrail.Point> positions = screen.getTrailPositions();
+        if (positions.isEmpty()) {
+            return;
+        }
+
+        shapeRenderer.flush();
+        Gdx.gl.glBlendFunc(GL20.GL_SRC_ALPHA, GL20.GL_ONE);
+
+        int total = positions.size();
+        int i = 0;
+        for (MotionTrail.Point p : positions) {
+            float fraction = 1f - (float) i / total; // 1 at newest (front) -> toward 0 at oldest
+            shapeRenderer.setColor(ballColor.r, ballColor.g, ballColor.b, fraction * TRAIL_MAX_ALPHA);
+            float size = GameplayScreen.BALL_RADIUS * MathUtils.lerp(TRAIL_MIN_SIZE_FRACTION, TRAIL_MAX_SIZE_FRACTION, fraction);
+            shapeRenderer.circle(p.x(), p.y(), size, 12);
+            i++;
+        }
+
+        shapeRenderer.flush();
+        Gdx.gl.glBlendFunc(GL20.GL_SRC_ALPHA, GL20.GL_ONE_MINUS_SRC_ALPHA);
     }
 
     /** A small catchlight fixed to the ball's own rotating frame, not the

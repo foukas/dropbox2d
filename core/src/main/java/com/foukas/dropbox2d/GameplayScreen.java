@@ -25,6 +25,7 @@ import com.foukas.dropbox2d.events.GameEventListener;
 import com.foukas.dropbox2d.events.GapPassed;
 import com.foukas.dropbox2d.events.PlatformDestroyed;
 import com.foukas.dropbox2d.events.PowerUpCollected;
+import com.foukas.dropbox2d.fx.MotionTrail;
 import com.foukas.dropbox2d.fx.ParticleSystem;
 import com.foukas.dropbox2d.fx.ScreenShake;
 import com.foukas.dropbox2d.generation.GapReachabilityValidator;
@@ -42,6 +43,7 @@ import com.foukas.dropbox2d.progression.SkinTier;
 
 import java.util.ArrayDeque;
 import java.util.ArrayList;
+import java.util.Deque;
 import java.util.List;
 
 /**
@@ -180,6 +182,10 @@ public class GameplayScreen implements Screen, GameEventListener {
     private float toastTimer;
     private float comboPulseTimer;
 
+    // Package-private: also read by GameplayRenderer for the trail draw.
+    static final int TRAIL_MAX_LENGTH = 12;
+    private final Deque<MotionTrail.Point> trailPositions = MotionTrail.newBuffer();
+
     // B1: persistent across runs, loaded from PlayerProgress at construction.
     private InputProvider inputProvider;
     private boolean useTilt;
@@ -272,6 +278,7 @@ public class GameplayScreen implements Screen, GameEventListener {
         particleSystem.clear();
         screenShake.stop();
         paused = false;
+        trailPositions.clear();
 
         spawnY = 0f;
         ballBody = createBall(WORLD_WIDTH / 2f, spawnY + 1.5f);
@@ -681,6 +688,8 @@ public class GameplayScreen implements Screen, GameEventListener {
     }
 
     private void updateCameraAndScroll(float delta) {
+        MotionTrail.add(trailPositions, new MotionTrail.Point(ballBody.getPosition().x, ballBody.getPosition().y), TRAIL_MAX_LENGTH);
+
         float depth = spawnY - ballBody.getPosition().y;
         depthScore = Math.max(depthScore, depth);
 
@@ -791,6 +800,10 @@ public class GameplayScreen implements Screen, GameEventListener {
 
     Body getBallBody() {
         return ballBody;
+    }
+
+    Deque<MotionTrail.Point> getTrailPositions() {
+        return trailPositions;
     }
 
     PowerUpManager getPowerUpManager() {
