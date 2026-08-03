@@ -1,6 +1,9 @@
 dependencies {
     api "com.badlogicgames.gdx:gdx:$gdxVersion"
     api "com.badlogicgames.gdx:gdx-box2d:$gdxVersion"
+    // Post-processing FBO pipeline for bloom/CRT (plan-eng-review Next Step 10).
+    api 'com.crashinvaders.vfx:gdx-vfx-core:0.5.4'
+    api 'com.crashinvaders.vfx:gdx-vfx-effects:0.5.4'
 
     testImplementation platform('org.junit:junit-bom:5.11.0')
     testImplementation 'org.junit.jupiter:junit-jupiter'

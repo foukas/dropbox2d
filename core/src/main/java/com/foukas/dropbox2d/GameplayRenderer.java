@@ -4,6 +4,7 @@ import com.badlogic.gdx.Gdx;
 import com.badlogic.gdx.graphics.Color;
 import com.badlogic.gdx.graphics.GL20;
 import com.badlogic.gdx.graphics.OrthographicCamera;
+import com.badlogic.gdx.graphics.Pixmap;
 import com.badlogic.gdx.graphics.g2d.BitmapFont;
 import com.badlogic.gdx.graphics.g2d.SpriteBatch;
 import com.badlogic.gdx.graphics.glutils.ShapeRenderer;
@@ -13,6 +14,9 @@ import com.badlogic.gdx.physics.box2d.Body;
 import com.badlogic.gdx.physics.box2d.Fixture;
 import com.badlogic.gdx.physics.box2d.PolygonShape;
 import com.badlogic.gdx.math.Vector2;
+import com.crashinvaders.vfx.VfxManager;
+import com.crashinvaders.vfx.effects.BloomEffect;
+import com.crashinvaders.vfx.effects.CrtEffect;
 import com.foukas.dropbox2d.fx.DepthAtmosphere;
 import com.foukas.dropbox2d.fx.MotionTrail;
 import com.foukas.dropbox2d.fx.ParticleSystem;
@@ -86,6 +90,17 @@ public class GameplayRenderer {
     private final SpriteBatch batch;
     private final BitmapFont font;
 
+    // Post-process FBO pipeline (Next Step 10) -- wraps the entire draw()
+    // output (background, gameplay, HUD, everything). Constructed once,
+    // same construct-once-reuse lifetime as everything else in this class
+    // (see GameplayScreen's/DropGame's class docs) -- accepted risk, no
+    // try/catch fallback if FBO init fails on an unsupported GPU (decided
+    // during /plan-eng-review Code Quality Issue 1; see the design doc's
+    // Reviewer Concerns).
+    private final VfxManager vfxManager;
+    private final BloomEffect bloomEffect;
+    private final CrtEffect crtEffect;
+
     GameplayRenderer(ScreenShake screenShake, ParticleSystem particleSystem,
                       PlayerProgress playerProgress, AdProvider adProvider) {
         this.screenShake = screenShake;
@@ -98,11 +113,25 @@ public class GameplayRenderer {
         shapeRenderer = new ShapeRenderer();
         batch = new SpriteBatch();
         font = new BitmapFont();
+
+        vfxManager = new VfxManager(Pixmap.Format.RGBA8888, Gdx.graphics.getWidth(), Gdx.graphics.getHeight());
+        bloomEffect = new BloomEffect();
+        // Low threshold since this scene has no real HDR data -- without
+        // it, the flat 0-1 color range barely triggers bloom at all.
+        bloomEffect.setThreshold(0.3f);
+        bloomEffect.setBloomIntensity(1.2f);
+        bloomEffect.setBlurPasses(2);
+        crtEffect = new CrtEffect();
+        vfxManager.addEffect(bloomEffect);
+        vfxManager.addEffect(crtEffect);
         font.setColor(Color.WHITE);
         updateFontScale();
     }
 
     void draw(GameplayScreen screen) {
+        vfxManager.cleanUpBuffers();
+        vfxManager.beginInputCapture();
+
         Gdx.gl.glClearColor(0f, 0f, 0f, 1f);
         Gdx.gl.glClear(GL20.GL_COLOR_BUFFER_BIT);
         // Needed for particle fade-out and the ball highlight's alpha --
@@ -175,6 +204,10 @@ public class GameplayRenderer {
         }
 
         batch.end();
+
+        vfxManager.endInputCapture();
+        vfxManager.applyEffects();
+        vfxManager.renderToScreen();
     }
 
     /** Dim rect over the last-rendered (frozen, since physics isn't
@@ -392,6 +425,7 @@ public class GameplayRenderer {
     void resize(int width, int height) {
         hudCamera.setToOrtho(false, width, height);
         updateFontScale();
+        vfxManager.resize(width, height);
     }
 
     private void updateFontScale() {
@@ -402,5 +436,8 @@ public class GameplayRenderer {
         shapeRenderer.dispose();
         batch.dispose();
         font.dispose();
+        vfxManager.dispose();
+        bloomEffect.dispose();
+        crtEffect.dispose();
     }
 }
