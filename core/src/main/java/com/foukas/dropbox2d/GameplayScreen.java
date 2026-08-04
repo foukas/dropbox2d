@@ -720,6 +720,17 @@ public class GameplayScreen implements Screen, GameEventListener {
         float depth = spawnY - ballBody.getPosition().y;
         depthScore = Math.max(depthScore, depth);
 
+        // Stateless recompute every check, same style as currentSkinTier() --
+        // but depthScore only, deliberately NOT Math.max(playerProgress
+        // .getBestDepth(), depthScore) like currentSkinTier() uses. Biomes
+        // are a cyclic per-run experience, not a one-way reward ratchet --
+        // using lifetime-best here would let a high-best-depth player
+        // permanently skip the early roster on every future run (plan-eng-
+        // review outside voice finding). No "previous biome" state to
+        // track; setLinearDamping() is a cheap field write, safe to call
+        // unconditionally every frame even when the value hasn't changed.
+        ballBody.setLinearDamping(Biome.biomeFor(depthScore).getLinearDamping());
+
         float scrollSpeed = Math.min(SCROLL_BASE_SPEED + depthScore * SCROLL_RAMP_PER_METER, SCROLL_MAX_SPEED);
         camera.position.y -= scrollSpeed * delta;
 
