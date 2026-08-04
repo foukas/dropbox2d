@@ -39,6 +39,7 @@ import com.foukas.dropbox2d.physics.DebrisManager;
 import com.foukas.dropbox2d.physics.PhysicsNaNGuard;
 import com.foukas.dropbox2d.powerups.PowerUpManager;
 import com.foukas.dropbox2d.powerups.WreckingBallPowerUp;
+import com.foukas.dropbox2d.progression.Biome;
 import com.foukas.dropbox2d.progression.PlayerProgress;
 import com.foukas.dropbox2d.progression.SkinTier;
 
@@ -89,7 +90,6 @@ public class GameplayScreen implements Screen, GameEventListener {
     private static final float GAP_MAX_WIDTH = 3.4f;
     private static final int MAX_GENERATION_ATTEMPTS = 20;
 
-    private static final float WEAK_PLATFORM_CHANCE = 0.35f;
     private static final float POWERUP_SPAWN_CHANCE = 0.15f;
     // Package-private: also read by GameplayRenderer.
     static final float POWERUP_RADIUS = 0.25f;
@@ -427,6 +427,16 @@ public class GameplayScreen implements Screen, GameEventListener {
         float rowY = lowestGeneratedY;
         lowestGeneratedY -= ROW_SPACING;
 
+        // Resolved from this ROW's own eventual depth (spawnY - rowY), not
+        // depthScore (the ball's current depth) -- rows are generated
+        // ~15.6 world units ahead of the ball (see manageRows()'s lookahead
+        // below), so a row generated just before a biome boundary must
+        // still roll against the biome it will actually land in, not
+        // whatever biome the ball happens to be in right now (plan-eng-review
+        // outside voice finding, relocated here from the reachability check
+        // that turned out not to need it).
+        Biome biome = Biome.biomeFor(spawnY - rowY);
+
         // Rows are generated ~6 rows ahead of the ball (see manageRows), so
         // the ball has that whole lookahead distance -- not just one row's
         // worth -- to reposition before this specific row matters. Using
@@ -453,12 +463,12 @@ public class GameplayScreen implements Screen, GameEventListener {
 
         Body left = null;
         if (gapStart > 0.1f) {
-            PlatformType type = MathUtils.random() < WEAK_PLATFORM_CHANCE ? PlatformType.WEAK : PlatformType.NORMAL;
+            PlatformType type = MathUtils.random() < biome.getWeakPlatformChance() ? PlatformType.WEAK : PlatformType.NORMAL;
             left = createPlatformSegment(0f, gapStart, rowY, type);
         }
         Body right = null;
         if (WORLD_WIDTH - gapEnd > 0.1f) {
-            PlatformType type = MathUtils.random() < WEAK_PLATFORM_CHANCE ? PlatformType.WEAK : PlatformType.NORMAL;
+            PlatformType type = MathUtils.random() < biome.getWeakPlatformChance() ? PlatformType.WEAK : PlatformType.NORMAL;
             right = createPlatformSegment(gapEnd, WORLD_WIDTH, rowY, type);
         }
 
