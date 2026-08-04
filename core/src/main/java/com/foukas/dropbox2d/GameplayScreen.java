@@ -450,6 +450,17 @@ public class GameplayScreen implements Screen, GameEventListener {
         float lookaheadRows = 6f;
         float timeToFall = (float) Math.sqrt(2 * (ROW_SPACING * lookaheadRows) / Math.abs(GRAVITY_Y));
 
+        // MAX_HORIZONTAL_SPEED and timeToFall below are NOT adjusted for
+        // the row's biome, and don't need to be: MAX_HORIZONTAL_SPEED is a
+        // hard per-frame clamp the ball can't exceed regardless of damping
+        // (equilibrium speed under any biome's damping stays far above the
+        // clamp for any plausible tuning value), and higher damping only
+        // ever slows a real fall relative to this undamped timeToFall
+        // formula -- giving the ball more real time than credited, never
+        // less. Both stay safe, conservative inputs for every biome as
+        // long as damping only increases from baseline, which BiomeTest
+        // enforces globally (see Biome's class doc) -- no per-biome
+        // recomputation needed here.
         float gapWidth = 0f;
         float gapStart = 0f;
         for (int attempt = 0; attempt < MAX_GENERATION_ATTEMPTS; attempt++) {
