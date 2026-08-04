@@ -22,6 +22,7 @@ import com.foukas.dropbox2d.fx.MotionTrail;
 import com.foukas.dropbox2d.fx.ParticleSystem;
 import com.foukas.dropbox2d.fx.ScreenShake;
 import com.foukas.dropbox2d.platform.SafeAreaInsets;
+import com.foukas.dropbox2d.progression.Biome;
 import com.foukas.dropbox2d.progression.PlayerProgress;
 import com.foukas.dropbox2d.progression.SkinTier;
 
@@ -47,11 +48,13 @@ public class GameplayRenderer {
     private static final Color WEAK_PLATFORM_COLOR = new Color(1f, 0.4196f, 0.2078f, 1f); // #ff6b35 orange
     private static final Color POWERUP_COLOR = new Color(1f, 0.8235f, 0.2471f, 1f); // #ffd23f gold
     private static final Color WRECKING_BALL_COLOR = new Color(1f, 0.1765f, 0.1765f, 1f); // #ff2d2d red
-    // Static purple gradient for now -- DepthAtmosphere (Next Step 8) layers
-    // depth-tied saturation on top of this base, pushing it toward a
-    // brighter neon horizon the deeper the run goes.
-    private static final Color BG_TOP_COLOR = new Color(0.1020f, 0.0431f, 0.1804f, 1f); // #1a0b2e dark purple
-    private static final Color BG_BOTTOM_COLOR = new Color(0.4157f, 0.1725f, 0.5686f, 1f); // #6a2c91 mid purple-magenta
+    // Background palette is now owned by the active Biome (plan-eng-review
+    // biome progression step 4) -- DepthAtmosphere.saturationFor()'s
+    // grid-line intensity and SkinTier's ball/platform colors stay on
+    // their existing, separate (non-cycling, depth-capped-at-300) axis for
+    // this slice, not folded into the biome system yet. The old hardcoded
+    // BG_TOP_COLOR/BG_BOTTOM_COLOR constants are gone -- Biome.NEON_DEPTHS
+    // carries the identical values, so nothing duplicates them anymore.
     private static final Color COMBO_TEXT_COLOR = new Color(1f, 0.8824f, 0.3020f, 1f); // #ffe14d gold
     private static final Color PAUSE_DIM_COLOR = new Color(0f, 0f, 0f, 0.6f);
 
@@ -161,7 +164,7 @@ public class GameplayRenderer {
         Gdx.gl.glBlendFunc(GL20.GL_SRC_ALPHA, GL20.GL_ONE_MINUS_SRC_ALPHA);
 
         OrthographicCamera camera = screen.getCamera();
-        drawSkyGradient();
+        drawSkyGradient(Biome.biomeFor(screen.getDepthScore()));
 
         // vfxManager.beginInputCapture() (above) rebinds its own FBO, which
         // resets the GL viewport to the FBO's full pixel size -- discarding
@@ -342,17 +345,20 @@ public class GameplayRenderer {
         font.getData().setScale(baseScale);
     }
 
-    /** Static sky gradient (unchanged from Next Step 7), drawn screen-space
-     * at the full framebuffer viewport so it covers the whole device screen
-     * -- including any letterbox area outside the world camera's
-     * aspect-correct viewport (see the comment in draw() around
-     * screen.getViewport().apply()) -- rather than being confined to it. */
-    private void drawSkyGradient() {
+    /** Sky gradient (Next Step 7's flat gradient, now biome-driven as of
+     * biome progression step 4), drawn screen-space at the full framebuffer
+     * viewport so it covers the whole device screen -- including any
+     * letterbox area outside the world camera's aspect-correct viewport
+     * (see the comment in draw() around screen.getViewport().apply()) --
+     * rather than being confined to it. */
+    private void drawSkyGradient(Biome biome) {
         shapeRenderer.setProjectionMatrix(hudCamera.combined);
         shapeRenderer.begin(ShapeRenderer.ShapeType.Filled);
         float w = Gdx.graphics.getWidth();
         float h = Gdx.graphics.getHeight();
-        shapeRenderer.rect(0f, 0f, w, h, BG_BOTTOM_COLOR, BG_BOTTOM_COLOR, BG_TOP_COLOR, BG_TOP_COLOR);
+        Color bottom = biome.getBottomColor();
+        Color top = biome.getTopColor();
+        shapeRenderer.rect(0f, 0f, w, h, bottom, bottom, top, top);
         shapeRenderer.end();
     }
 
