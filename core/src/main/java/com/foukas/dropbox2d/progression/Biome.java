@@ -37,8 +37,10 @@ public enum Biome {
 
     // World units of depth per band; the roster cycles every
     // BAND_SIZE_METERS * values().length. Placeholder -- no starting number
-    // is locked in (design doc Open Questions).
-    private static final float BAND_SIZE_METERS = 100f;
+    // is locked in (design doc Open Questions). Package-private (not
+    // private) so BiomeTest can reference it directly instead of
+    // duplicating the value as a magic number.
+    static final float BAND_SIZE_METERS = 100f;
 
     private final Color topColor;
     private final Color bottomColor;
@@ -73,12 +75,25 @@ public enum Biome {
      * cyclic per-run experience, not a one-way reward ratchet; using
      * lifetime-best here would let a high-best-depth player permanently
      * skip the early roster on every future run (see design doc
-     * Constraints, plan-eng-review outside voice finding). Math.floorMod,
-     * not %, so negative depth wraps correctly instead of returning a
-     * negative index. */
+     * Constraints, plan-eng-review outside voice finding). */
     public static Biome biomeFor(float depth) {
+        return biomeFor(depth, BAND_SIZE_METERS);
+    }
+
+    /** Package-private overload taking bandSize explicitly -- same reason
+     * GapReachabilityValidator.worstCaseDistanceToGap() is a separate
+     * package-private static method: makes the resolver itself directly,
+     * deterministically testable (BiomeTest) without depending on whatever
+     * BAND_SIZE_METERS happens to be tuned to, and without needing
+     * reflection to exercise the bandSize <= 0 guard. Math.floorMod, not
+     * %, so negative depth wraps correctly instead of returning a negative
+     * index. */
+    static Biome biomeFor(float depth, float bandSize) {
+        if (bandSize <= 0f) {
+            throw new IllegalArgumentException("bandSize must be positive, was " + bandSize);
+        }
         Biome[] roster = values();
-        int rawIndex = (int) Math.floor(depth / BAND_SIZE_METERS);
+        int rawIndex = (int) Math.floor(depth / bandSize);
         int index = Math.floorMod(rawIndex, roster.length);
         return roster[index];
     }
