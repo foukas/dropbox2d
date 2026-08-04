@@ -15,7 +15,11 @@ import com.badlogic.gdx.graphics.Color;
  * linearDamping only ever increases across constants relative to the first
  * (baseline) entry -- required so GapReachabilityValidator's existing
  * MAX_HORIZONTAL_SPEED/timeToFall inputs stay conservative without any
- * per-biome physics recomputation (see design doc Constraints). */
+ * per-biome physics recomputation (see design doc Constraints). This is an
+ * enforced constraint, not just a habit: BiomeTest asserts every roster
+ * entry's linearDamping is at least the baseline's, so adding a biome with
+ * lower damping fails the test suite immediately instead of silently
+ * reopening a reachability bug. */
 public enum Biome {
     // Baseline -- matches the pre-biome look/feel exactly (today's
     // GameplayRenderer.BG_TOP_COLOR/BG_BOTTOM_COLOR, GameplayScreen's

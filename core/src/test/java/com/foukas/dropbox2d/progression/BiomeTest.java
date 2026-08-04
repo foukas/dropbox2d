@@ -4,6 +4,7 @@ import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class BiomeTest {
 
@@ -58,5 +59,22 @@ class BiomeTest {
     @Test
     void firstBiomeReproducesTheHistoricalPreBiomeWeakPlatformChance() {
         assertEquals(0.35f, Biome.values()[0].getWeakPlatformChance(), 0.0001f);
+    }
+
+    // Enforced constraint (plan-eng-review biome progression step 6, design
+    // doc Constraints): damping must only ever INCREASE from the baseline
+    // (first roster entry). GapReachabilityValidator's existing
+    // MAX_HORIZONTAL_SPEED/timeToFall inputs stay conservative under that
+    // constraint without any per-biome physics recomputation -- see step 7.
+    // A future biome added with lower damping than baseline would silently
+    // reopen that reachability bug; this test fails immediately instead.
+    @Test
+    void everyBiomesDampingIsAtLeastTheBaselines() {
+        float baselineDamping = Biome.values()[0].getLinearDamping();
+        for (Biome biome : Biome.values()) {
+            assertTrue(biome.getLinearDamping() >= baselineDamping,
+                    biome + " has damping " + biome.getLinearDamping()
+                            + ", below baseline " + baselineDamping);
+        }
     }
 }
