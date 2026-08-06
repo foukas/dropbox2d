@@ -24,12 +24,19 @@ public enum Biome {
     // Baseline -- matches the pre-biome look/feel exactly (today's
     // GameplayRenderer.BG_TOP_COLOR/BG_BOTTOM_COLOR, GameplayScreen's
     // WEAK_PLATFORM_CHANCE and BALL_LINEAR_DAMPING) so a player who never
-    // leaves the first band sees no change at all.
+    // leaves the first band sees no change at all except the new moving
+    // platform. movingPlatformChance=0.15f is a placeholder (moving-
+    // platforms design doc Open Questions, same by-feel tuning posture as
+    // weakPlatformChance/linearDamping) -- kept low enough that it doesn't
+    // dominate the mutually-exclusive weakPlatformChance roll, but not so
+    // low it's buried at rare odds for the "casual player, first minute"
+    // success bar.
     NEON_DEPTHS(
             new Color(0.1020f, 0.0431f, 0.1804f, 1f), // #1a0b2e dark purple
             new Color(0.4157f, 0.1725f, 0.5686f, 1f), // #6a2c91 mid purple-magenta
             0.35f,
-            0.5f),
+            0.5f,
+            0.15f),
     // Floatier -- higher damping (still Box2D-legible, not slow-motion) and
     // a cooler electric-blue palette so it reads as a distinct "biome", not
     // just a recolor. 3.0f, not a smaller bump: with gravity constant,
@@ -38,12 +45,15 @@ public enum Biome {
     // short fall between platforms actually reaches (~11 m/s worst case) or
     // the extra drag never has time to matter before the ball lands --
     // confirmed by playtest at 1.0f (terminal ~25 m/s, unreachable) feeling
-    // identical to baseline.
+    // identical to baseline. movingPlatformChance placeholder matches
+    // NEON_DEPTHS for now -- per-biome differentiation is an explicit Open
+    // Question, deferred to playtesting like the other tunables.
     FLOATING_VOID(
             new Color(0.0392f, 0.0549f, 0.1804f, 1f), // #0a0e2e deep space navy
             new Color(0.1020f, 0.2902f, 0.4784f, 1f), // #1a4a7a electric blue
             0.5f,
-            3.0f);
+            3.0f,
+            0.15f);
 
     // World units of depth per band; the roster cycles every
     // BAND_SIZE_METERS * values().length. Placeholder -- no starting number
@@ -56,12 +66,14 @@ public enum Biome {
     private final Color bottomColor;
     private final float weakPlatformChance;
     private final float linearDamping;
+    private final float movingPlatformChance;
 
-    Biome(Color topColor, Color bottomColor, float weakPlatformChance, float linearDamping) {
+    Biome(Color topColor, Color bottomColor, float weakPlatformChance, float linearDamping, float movingPlatformChance) {
         this.topColor = topColor;
         this.bottomColor = bottomColor;
         this.weakPlatformChance = weakPlatformChance;
         this.linearDamping = linearDamping;
+        this.movingPlatformChance = movingPlatformChance;
     }
 
     public Color getTopColor() {
@@ -78,6 +90,10 @@ public enum Biome {
 
     public float getLinearDamping() {
         return linearDamping;
+    }
+
+    public float getMovingPlatformChance() {
+        return movingPlatformChance;
     }
 
     /** The active biome for a given depth -- depthScore only, never a

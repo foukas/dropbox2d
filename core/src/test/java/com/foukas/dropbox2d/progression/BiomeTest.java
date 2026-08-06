@@ -77,4 +77,25 @@ class BiomeTest {
                             + ", below baseline " + baselineDamping);
         }
     }
+
+    // Moving-platforms design doc, Success Criteria: every biome exposes a
+    // movingPlatformChance, and the baseline (first roster entry) is
+    // nonzero and low enough that a player who never leaves the first band
+    // still sees the "oh, that's new" moment within a reasonable number of
+    // rows, not buried at rare odds.
+    @Test
+    void everyBiomeHasAMovingPlatformChance() {
+        for (Biome biome : Biome.values()) {
+            assertTrue(biome.getMovingPlatformChance() > 0f,
+                    biome + " has a non-positive movingPlatformChance");
+        }
+    }
+
+    @Test
+    void baselineMovingPlatformChanceIsNotBuriedAtRareOdds() {
+        float baseline = Biome.values()[0].getMovingPlatformChance();
+        assertTrue(baseline >= 0.05f && baseline <= 0.5f,
+                "baseline movingPlatformChance " + baseline
+                        + " should be visible-but-not-dominant, same posture as weakPlatformChance");
+    }
 }
