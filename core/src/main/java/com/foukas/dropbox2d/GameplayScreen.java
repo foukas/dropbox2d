@@ -37,6 +37,7 @@ import com.foukas.dropbox2d.generation.PlatformType;
 import com.foukas.dropbox2d.monetization.AdProvider;
 import com.foukas.dropbox2d.platform.SafeAreaInsets;
 import com.foukas.dropbox2d.physics.DebrisManager;
+import com.foukas.dropbox2d.physics.MovingPlatformManager;
 import com.foukas.dropbox2d.physics.PhysicsNaNGuard;
 import com.foukas.dropbox2d.powerups.PowerUpManager;
 import com.foukas.dropbox2d.powerups.WreckingBallPowerUp;
@@ -197,6 +198,7 @@ public class GameplayScreen implements Screen, GameEventListener {
     private ScoreManager scoreManager;
     private GameOverController gameOverController;
     private DebrisManager debrisManager;
+    private MovingPlatformManager movingPlatformManager;
     private PowerUpManager powerUpManager;
 
     private SkinTier highestAnnouncedTier;
@@ -317,6 +319,7 @@ public class GameplayScreen implements Screen, GameEventListener {
         powerUpManager = new PowerUpManager();
         powerUpManager.register("wreckingBall", new WreckingBallPowerUp(ballBody));
         debrisManager = new DebrisManager(world);
+        movingPlatformManager = new MovingPlatformManager();
 
         if (pendingRewardedWreckingBall) {
             pendingRewardedWreckingBall = false;
@@ -519,25 +522,45 @@ public class GameplayScreen implements Screen, GameEventListener {
         }
         float gapEnd = gapStart + gapWidth;
 
-        // createPlatformSegment() still builds a single static body for a
-        // MOVING side at this point -- the split into filler + kinematic
-        // piece lands in moving-platforms step 6. Until then, a MOVING
-        // roll is validated and tagged like the others but physically
-        // behaves as an ordinary static platform.
+        // A MOVING side is split into a static filler + a separate small
+        // kinematic piece (moving-platforms step 6) -- never the whole
+        // flanking span made kinematic (see the design doc's Constraints
+        // for why that geometry would open an unvalidated wall-side hole).
+        // leftAvailableSpanEnd/rightAvailableSpanStart narrow the power-up
+        // placement span to the filler's footprint only on a MOVING side
+        // (Next Step 7) -- unchanged (gapStart/gapEnd) for NORMAL/WEAK.
         Body left = null;
+        Body leftKinematic = null;
+        float leftAvailableSpanEnd = gapStart;
         if (gapStart > 0.1f) {
-            left = createPlatformSegment(0f, gapStart, rowY, leftType);
+            if (leftType == PlatformType.MOVING) {
+                MovingSegment segment = createMovingPlatformSegment(0f, gapStart, rowY, MOVING_PLATFORM_AMPLITUDE);
+                left = segment.filler();
+                leftKinematic = segment.kinematic();
+                leftAvailableSpanEnd = segment.fillerEdge();
+            } else {
+                left = createPlatformSegment(0f, gapStart, rowY, leftType);
+            }
         }
         Body right = null;
+        Body rightKinematic = null;
+        float rightAvailableSpanStart = gapEnd;
         if (WORLD_WIDTH - gapEnd > 0.1f) {
-            right = createPlatformSegment(gapEnd, WORLD_WIDTH, rowY, rightType);
+            if (rightType == PlatformType.MOVING) {
+                MovingSegment segment = createMovingPlatformSegment(WORLD_WIDTH, gapEnd, rowY, MOVING_PLATFORM_AMPLITUDE);
+                right = segment.filler();
+                rightKinematic = segment.kinematic();
+                rightAvailableSpanStart = segment.fillerEdge();
+            } else {
+                right = createPlatformSegment(gapEnd, WORLD_WIDTH, rowY, rightType);
+            }
         }
 
         Body powerUp = null;
         if (MathUtils.random() < POWERUP_SPAWN_CHANCE) {
             List<float[]> availableSpans = new ArrayList<>(2);
-            if (left != null) availableSpans.add(new float[]{0f, gapStart});
-            if (right != null) availableSpans.add(new float[]{gapEnd, WORLD_WIDTH});
+            if (left != null) availableSpans.add(new float[]{0f, leftAvailableSpanEnd});
+            if (right != null) availableSpans.add(new float[]{rightAvailableSpanStart, WORLD_WIDTH});
             if (!availableSpans.isEmpty()) {
                 float[] span = availableSpans.get(MathUtils.random(availableSpans.size() - 1));
                 float spanWidth = span[1] - span[0];
@@ -552,8 +575,80 @@ public class GameplayScreen implements Screen, GameEventListener {
         }
 
         PlatformRow row = new PlatformRow(rowY, left, right, powerUp);
+        row.leftKinematic = leftKinematic;
+        row.rightKinematic = rightKinematic;
         rows.add(row);
         pendingScoreRows.addLast(row);
+    }
+
+    /** Splits a MOVING side's flanking segment into a static filler and a
+     * separate, small kinematic piece patrolling near the gap (moving-
+     * platforms step 6) -- see the design doc's corrected seam-invariant
+     * note for the geometry this implements. wallX is the wall-side
+     * boundary of the whole flanking span (0f for the left side,
+     * WORLD_WIDTH for the right); gapEdgeX is the nominal, non-patrolled
+     * gap-facing edge (gapStart for the left side, gapEnd for the right) --
+     * the same value spawnNextRow()'s reachability-retry loop already
+     * validated via MovingPlatformReachability. The formula below is
+     * direction-agnostic: sign flips it for whichever side is being built,
+     * so the left and right call sites don't need separate math. */
+    private MovingSegment createMovingPlatformSegment(float wallX, float gapEdgeX, float y, float amplitude) {
+        boolean gapIsToTheRight = gapEdgeX > wallX;
+        float sign = gapIsToTheRight ? 1f : -1f;
+
+        // The kinematic piece's gap-facing edge patrols between gapEdgeX
+        // (rest) and gapEdgeX + sign*amplitude (full extension into the
+        // gap) -- exactly the narrowed edge MovingPlatformReachability
+        // .shrinkForAmplitude() already validated above. Its rest
+        // (wall-ward) position overlaps the filler by amplitude; the
+        // filler's edge is fixed at the kinematic piece's full-extension
+        // wall-side edge, so the two footprints only ever overlap, never
+        // separate into a gap.
+        float restWallSideEdge = gapEdgeX - sign * MOVING_PLATFORM_WIDTH;
+        float fillerEdge = restWallSideEdge + sign * amplitude;
+
+        Body filler = createPlatformSegment(
+                gapIsToTheRight ? wallX : fillerEdge,
+                gapIsToTheRight ? fillerEdge : wallX,
+                y, PlatformType.NORMAL);
+
+        float restCenterX = restWallSideEdge + sign * MOVING_PLATFORM_WIDTH / 2f;
+        float fullExtensionCenterX = restCenterX + sign * amplitude;
+        float minX = Math.min(restCenterX, fullExtensionCenterX);
+        float maxX = Math.max(restCenterX, fullExtensionCenterX);
+
+        Body kinematic = createKinematicPlatformSegment(restCenterX, y);
+        movingPlatformManager.track(kinematic, minX, maxX);
+
+        return new MovingSegment(filler, kinematic, fillerEdge);
+    }
+
+    private Body createKinematicPlatformSegment(float centerX, float y) {
+        BodyDef bodyDef = new BodyDef();
+        bodyDef.type = BodyDef.BodyType.KinematicBody;
+        bodyDef.position.set(centerX, y);
+        Body body = world.createBody(bodyDef);
+
+        PolygonShape shape = new PolygonShape();
+        shape.setAsBox(MOVING_PLATFORM_WIDTH / 2f, PLATFORM_THICKNESS / 2f);
+
+        FixtureDef fixtureDef = new FixtureDef();
+        fixtureDef.shape = shape;
+        fixtureDef.friction = 0.6f;
+        fixtureDef.restitution = 0f;
+        Fixture fixture = body.createFixture(fixtureDef);
+        // Distinct tag comes in moving-platforms step 7 (ContactDispatcher
+        // extension + GameplayRenderer color branch land together with it,
+        // guarded by ContactDispatcherTest). "platform" for now so contact
+        // handling and rendering behave like an ordinary static platform
+        // in the interim.
+        fixture.setUserData("platform");
+        shape.dispose();
+
+        return body;
+    }
+
+    private record MovingSegment(Body filler, Body kinematic, float fillerEdge) {
     }
 
     /** Extracted (plan-eng-review Code Quality finding, moving-platforms
@@ -759,6 +854,14 @@ public class GameplayScreen implements Screen, GameEventListener {
             world.step(FIXED_TIMESTEP, 6, 2);
             physicsAccumulator -= FIXED_TIMESTEP;
             PhysicsNaNGuard.checkAndFix(ballBody, WORLD_WIDTH / 2f, camera.position.y);
+            // Per-substep, not once per render frame (moving-platforms
+            // step 9, plan-eng-review outside-voice finding): render()
+            // can wrap several substeps depending on frame timing, so a
+            // once-per-frame check would let a kinematic body overshoot
+            // its patrol amplitude on a stutter before the next check --
+            // see MovingPlatformManager's class doc, same reasoning as
+            // PhysicsNaNGuard.checkAndFix() being called from here too.
+            movingPlatformManager.checkBounds();
         }
     }
 
@@ -858,12 +961,20 @@ public class GameplayScreen implements Screen, GameEventListener {
         for (PlatformRow row : toRemove) {
             if (row.left != null) world.destroyBody(row.left);
             if (row.right != null) world.destroyBody(row.right);
-            // MovingPlatformManager untracking for leftKinematic/rightKinematic
-            // lands in moving-platforms step 6, alongside the manager itself --
-            // destroying the body here without untracking it there would leave
-            // a dangling reference (plan-eng-review Failure Modes finding).
-            if (row.leftKinematic != null) world.destroyBody(row.leftKinematic);
-            if (row.rightKinematic != null) world.destroyBody(row.rightKinematic);
+            // MOVING is mutually exclusive with WEAK and isn't a power-up,
+            // so this row-recycling loop is the ONLY place a MOVING side's
+            // kinematic body is ever destroyed in this slice -- untrack
+            // BEFORE destroyBody() so MovingPlatformManager never holds a
+            // dangling reference to a destroyed native body (plan-eng-
+            // review Failure Modes finding).
+            if (row.leftKinematic != null) {
+                movingPlatformManager.untrack(row.leftKinematic);
+                world.destroyBody(row.leftKinematic);
+            }
+            if (row.rightKinematic != null) {
+                movingPlatformManager.untrack(row.rightKinematic);
+                world.destroyBody(row.rightKinematic);
+            }
             if (row.powerUp != null) world.destroyBody(row.powerUp);
             rows.remove(row);
         }
