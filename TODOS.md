@@ -23,3 +23,19 @@
 **Cons:** None really — this is a planning-quality fix, not a feature.
 **Context:** Run before starting the next content-variety slice, once the biome work ships. Not urgent — the biome slice itself doesn't depend on this.
 **Depends on / blocked by:** None — can happen any time before the next content-variety slice is picked, does not block the current biome work.
+
+## Moving+weak combo platform (Approach C, deferred from moving-platforms doc)
+**What:** A platform that's both `MOVING` and `WEAK` — drifts, and breaks if the ball lands on it, forcing a ride-it-or-bail decision. Falls out of existing `PlatformType` values plus a velocity flag once the base moving-platform mechanic (design doc `foukas-main-design-20260805-095358.md`) exists — no third system needed.
+**Why:** Explicitly deferred in that design doc's Approaches Considered (Approach C) and Open Questions — closer to Icy Tower's combinatorial-hazard feel than a single new type, but bundling it into the initial wedge would re-widen the narrow-vs-wide tension the doc's Premise 3 deliberately resolved toward "one type first."
+**Pros:** Cheap once Approach B's foundation exists (reuses `DestructiblePlatform`'s break logic and Approach B's kinematic-body mechanism directly).
+**Cons:** Widens scope back toward variety; better as a fast follow-up than bundled into the base slice.
+**Context:** Revisit only after the base moving-platform mechanic (Approach B) ships and has been playtested — evaluating the combo before the base mechanic exists isn't meaningful.
+**Depends on / blocked by:** The moving-platforms design doc shipping first.
+
+## Investigate moving-platform friction dragging the ball near a gap edge
+**What:** A moving platform's friction (0.6, unchanged from static platforms — `GameplayScreen.createPlatformSegment()`) could drag a ball resting near a gap edge laterally, in a way the gap-reachability math doesn't model. Flagged by the outside-voice review during `/plan-eng-review` on the moving-platforms design doc (2026-08-06) — not raised in any of that doc's 3 spec-review rounds.
+**Why:** `GapReachabilityValidator`'s amplitude-shrink transform only bounds the ball's worst-case fall trajectory through the gap; it says nothing about lateral drag from standing on a moving surface near an edge.
+**Pros:** Cheap to check — first pass is just playtest observation during the moving-platform feature's own Step 10 playtest, no new code needed unless it's actually a problem.
+**Cons:** Speculative — may be imperceptible, or could even read as an intentional "nudge" rather than a bug.
+**Context:** Revisit during the moving-platform feature's Step 10 playtest pass. If the ball visibly gets dragged in a way that feels like a bug rather than a feature, that's the trigger to act.
+**Depends on / blocked by:** The moving-platforms design doc shipping and being playtested first — can't be meaningfully evaluated before the mechanic exists.
