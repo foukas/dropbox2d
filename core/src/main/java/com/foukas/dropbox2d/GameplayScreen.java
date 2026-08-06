@@ -786,6 +786,8 @@ public class GameplayScreen implements Screen, GameEventListener {
         for (PlatformRow row : rows) {
             if (row.left == body) row.left = null;
             if (row.right == body) row.right = null;
+            if (row.leftKinematic == body) row.leftKinematic = null;
+            if (row.rightKinematic == body) row.rightKinematic = null;
             if (row.powerUp == body) row.powerUp = null;
         }
     }
@@ -856,6 +858,12 @@ public class GameplayScreen implements Screen, GameEventListener {
         for (PlatformRow row : toRemove) {
             if (row.left != null) world.destroyBody(row.left);
             if (row.right != null) world.destroyBody(row.right);
+            // MovingPlatformManager untracking for leftKinematic/rightKinematic
+            // lands in moving-platforms step 6, alongside the manager itself --
+            // destroying the body here without untracking it there would leave
+            // a dangling reference (plan-eng-review Failure Modes finding).
+            if (row.leftKinematic != null) world.destroyBody(row.leftKinematic);
+            if (row.rightKinematic != null) world.destroyBody(row.rightKinematic);
             if (row.powerUp != null) world.destroyBody(row.powerUp);
             rows.remove(row);
         }
@@ -960,6 +968,15 @@ public class GameplayScreen implements Screen, GameEventListener {
         final float y;
         Body left;
         Body right;
+        // Non-null only when the matching side is PlatformType.MOVING --
+        // left/right stay the static filler body in that case (narrower
+        // than the full flanking span, see moving-platforms step 6), and
+        // this holds the separate small kinematic piece patrolling near
+        // the gap. Null for NORMAL/WEAK sides, same as left/right are null
+        // when that side has no flanking segment at all (moving-platforms
+        // step 5).
+        Body leftKinematic;
+        Body rightKinematic;
         Body powerUp;
 
         PlatformRow(float y, Body left, Body right, Body powerUp) {

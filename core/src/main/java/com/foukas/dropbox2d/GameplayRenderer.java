@@ -196,6 +196,8 @@ public class GameplayRenderer {
         for (GameplayScreen.PlatformRow row : screen.getRows()) {
             drawPlatform(row.left);
             drawPlatform(row.right);
+            drawPlatform(row.leftKinematic);
+            drawPlatform(row.rightKinematic);
             drawPowerUp(row.powerUp);
         }
 
