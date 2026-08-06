@@ -29,6 +29,7 @@ import com.foukas.dropbox2d.fx.MotionTrail;
 import com.foukas.dropbox2d.fx.ParticleSystem;
 import com.foukas.dropbox2d.fx.ScreenShake;
 import com.foukas.dropbox2d.generation.GapReachabilityValidator;
+import com.foukas.dropbox2d.generation.MovingPlatformReachability;
 import com.foukas.dropbox2d.input.InputProvider;
 import com.foukas.dropbox2d.input.TapInputProvider;
 import com.foukas.dropbox2d.input.TiltInputProvider;
@@ -89,6 +90,20 @@ public class GameplayScreen implements Screen, GameEventListener {
     private static final float GAP_MIN_WIDTH = 2.4f;
     private static final float GAP_MAX_WIDTH = 3.4f;
     private static final int MAX_GENERATION_ATTEMPTS = 20;
+
+    // Moving-platform tuning (moving-platforms design doc, plan-eng-review
+    // 2026-08-06) -- placeholders, expected to be re-tuned by feel like
+    // GAP_MIN_WIDTH/WEAK_PLATFORM_CHANCE's historical siblings. Comfortably
+    // below GAP_MIN_WIDTH / 2 = 1.2f by construction, enforced by
+    // MovingPlatformReachabilityTest.realPatrolAmplitudeStaysComfortablyUnderHalfGapMinWidth
+    // rather than a runtime clamp. MIN_FILLER_WIDTH + MOVING_PLATFORM_WIDTH +
+    // MOVING_PLATFORM_AMPLITUDE (1.6f) exceeds the flanking span's
+    // guaranteed 0.5f-unit minimum -- spawnNextRow()'s retry loop rejects
+    // and rerolls in that case via MovingPlatformReachability.fitsSplitBodyGeometry(),
+    // it never clamps or degrades the geometry silently.
+    private static final float MOVING_PLATFORM_AMPLITUDE = 0.5f;
+    private static final float MOVING_PLATFORM_WIDTH = 0.8f;
+    private static final float MIN_FILLER_WIDTH = 0.3f;
 
     private static final float POWERUP_SPAWN_CHANCE = 0.15f;
     // Package-private: also read by GameplayRenderer.
@@ -461,24 +476,61 @@ public class GameplayScreen implements Screen, GameEventListener {
         // long as damping only increases from baseline, which BiomeTest
         // enforces globally (see Biome's class doc) -- no per-biome
         // recomputation needed here.
+        // Type (and therefore amplitude) must be decided BEFORE the retry
+        // loop below, not after as WEAK/NORMAL selection used to be
+        // (plan-eng-review moving-platforms step 4) -- amplitude now feeds
+        // into the reachability check as an input, so it can no longer be
+        // decided once a gap is already accepted. MOVING/WEAK stay
+        // mutually exclusive for this slice: rollPlatformType() rolls
+        // movingPlatformChance first, else weakPlatformChance, else
+        // NORMAL, keeping WEAK's own distribution unchanged whenever a
+        // side isn't MOVING.
+        PlatformType leftType = rollPlatformType(biome);
+        PlatformType rightType = rollPlatformType(biome);
+        float leftAmplitude = leftType == PlatformType.MOVING ? MOVING_PLATFORM_AMPLITUDE : 0f;
+        float rightAmplitude = rightType == PlatformType.MOVING ? MOVING_PLATFORM_AMPLITUDE : 0f;
+
         float gapWidth = 0f;
         float gapStart = 0f;
         for (int attempt = 0; attempt < MAX_GENERATION_ATTEMPTS; attempt++) {
             gapWidth = MathUtils.random(GAP_MIN_WIDTH, GAP_MAX_WIDTH);
             gapStart = MathUtils.random(0.5f, WORLD_WIDTH - gapWidth - 0.5f);
-            if (GapReachabilityValidator.isReachable(gapStart, gapWidth, WORLD_WIDTH, MAX_HORIZONTAL_SPEED, timeToFall)) {
+            float attemptGapEnd = gapStart + gapWidth;
+
+            // Validate against the narrowest gap either side's patrol
+            // amplitude could ever produce (0 for a non-MOVING side --
+            // identical to today's un-shrunk check in that case), plus a
+            // check that a MOVING side's eventual flanking span can
+            // actually fit the split-body geometry it will need (moving-
+            // platforms step 6) -- reject and reroll on either failure,
+            // never clamp or build broken geometry.
+            MovingPlatformReachability.AdjustedGap adjusted =
+                    MovingPlatformReachability.shrinkForAmplitude(gapStart, gapWidth, leftAmplitude, rightAmplitude);
+            boolean reachable = GapReachabilityValidator.isReachable(
+                    adjusted.gapStart(), adjusted.gapWidth(), WORLD_WIDTH, MAX_HORIZONTAL_SPEED, timeToFall);
+            boolean leftFits = leftType != PlatformType.MOVING
+                    || MovingPlatformReachability.fitsSplitBodyGeometry(gapStart, MOVING_PLATFORM_WIDTH, MOVING_PLATFORM_AMPLITUDE, MIN_FILLER_WIDTH);
+            boolean rightFits = rightType != PlatformType.MOVING
+                    || MovingPlatformReachability.fitsSplitBodyGeometry(WORLD_WIDTH - attemptGapEnd, MOVING_PLATFORM_WIDTH, MOVING_PLATFORM_AMPLITUDE, MIN_FILLER_WIDTH);
+
+            if (reachable && leftFits && rightFits) {
                 break;
             }
         }
         float gapEnd = gapStart + gapWidth;
 
+        // createPlatformSegment() still builds a single static body for a
+        // MOVING side at this point -- the split into filler + kinematic
+        // piece lands in moving-platforms step 6. Until then, a MOVING
+        // roll is validated and tagged like the others but physically
+        // behaves as an ordinary static platform.
         Body left = null;
         if (gapStart > 0.1f) {
-            left = createPlatformSegment(0f, gapStart, rowY, rollPlatformType(biome));
+            left = createPlatformSegment(0f, gapStart, rowY, leftType);
         }
         Body right = null;
         if (WORLD_WIDTH - gapEnd > 0.1f) {
-            right = createPlatformSegment(gapEnd, WORLD_WIDTH, rowY, rollPlatformType(biome));
+            right = createPlatformSegment(gapEnd, WORLD_WIDTH, rowY, rightType);
         }
 
         Body powerUp = null;
@@ -506,9 +558,16 @@ public class GameplayScreen implements Screen, GameEventListener {
 
     /** Extracted (plan-eng-review Code Quality finding, moving-platforms
      * step 3) so the left/right blocks in spawnNextRow() don't duplicate
-     * the roll logic -- about to grow a MOVING branch (moving-platforms
-     * step 4), which would otherwise need editing in two places. */
+     * the roll logic. MOVING/WEAK are mutually exclusive for this slice
+     * (Approach C, the combo, is deferred -- see TODOS.md): rolls
+     * movingPlatformChance first, else weakPlatformChance as before, else
+     * NORMAL -- keeps WEAK's own distribution unchanged whenever a side
+     * isn't MOVING, since the two rolls consume independent draws from
+     * the unseeded random stream (moving-platforms step 4). */
     private PlatformType rollPlatformType(Biome biome) {
+        if (MathUtils.random() < biome.getMovingPlatformChance()) {
+            return PlatformType.MOVING;
+        }
         return MathUtils.random() < biome.getWeakPlatformChance() ? PlatformType.WEAK : PlatformType.NORMAL;
     }
 
