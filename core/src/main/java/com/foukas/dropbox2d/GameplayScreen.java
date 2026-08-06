@@ -474,13 +474,11 @@ public class GameplayScreen implements Screen, GameEventListener {
 
         Body left = null;
         if (gapStart > 0.1f) {
-            PlatformType type = MathUtils.random() < biome.getWeakPlatformChance() ? PlatformType.WEAK : PlatformType.NORMAL;
-            left = createPlatformSegment(0f, gapStart, rowY, type);
+            left = createPlatformSegment(0f, gapStart, rowY, rollPlatformType(biome));
         }
         Body right = null;
         if (WORLD_WIDTH - gapEnd > 0.1f) {
-            PlatformType type = MathUtils.random() < biome.getWeakPlatformChance() ? PlatformType.WEAK : PlatformType.NORMAL;
-            right = createPlatformSegment(gapEnd, WORLD_WIDTH, rowY, type);
+            right = createPlatformSegment(gapEnd, WORLD_WIDTH, rowY, rollPlatformType(biome));
         }
 
         Body powerUp = null;
@@ -504,6 +502,14 @@ public class GameplayScreen implements Screen, GameEventListener {
         PlatformRow row = new PlatformRow(rowY, left, right, powerUp);
         rows.add(row);
         pendingScoreRows.addLast(row);
+    }
+
+    /** Extracted (plan-eng-review Code Quality finding, moving-platforms
+     * step 3) so the left/right blocks in spawnNextRow() don't duplicate
+     * the roll logic -- about to grow a MOVING branch (moving-platforms
+     * step 4), which would otherwise need editing in two places. */
+    private PlatformType rollPlatformType(Biome biome) {
+        return MathUtils.random() < biome.getWeakPlatformChance() ? PlatformType.WEAK : PlatformType.NORMAL;
     }
 
     private Body createPlatformSegment(float xStart, float xEnd, float y, PlatformType type) {
