@@ -12,11 +12,12 @@ import com.foukas.dropbox2d.physics.DestructiblePlatform;
 /** Box2D's own contact callback, wrapped to dispatch typed events instead of
  * mutating game state directly. Fixture user-data tagging convention:
  * "ball", "platform" (solid, permanent), "weakPlatform" (breakable),
- * "powerUp:&lt;type&gt;" (sensor pickup, colon-delimited type tag). Every
- * event here is dispatched once, from the contact that triggered it --
- * nothing tracks ongoing "is touching" state, so destroying a body
- * afterward (which this class never does directly -- see
- * DestructiblePlatform's class comment) never leaves anything stale. */
+ * "movingPlatform" (solid, kinematic, patrols -- moving-platforms design
+ * doc, plan-eng-review 2026-08-06), "powerUp:&lt;type&gt;" (sensor pickup,
+ * colon-delimited type tag). Every event here is dispatched once, from the
+ * contact that triggered it -- nothing tracks ongoing "is touching" state,
+ * so destroying a body afterward (which this class never does directly --
+ * see DestructiblePlatform's class comment) never leaves anything stale. */
 public class ContactDispatcher implements ContactListener {
     private static final String POWERUP_PREFIX = "powerUp:";
 
@@ -31,7 +32,12 @@ public class ContactDispatcher implements ContactListener {
         Fixture a = contact.getFixtureA();
         Fixture b = contact.getFixtureB();
 
-        if (isBallVs(a, b, "platform") || isBallVs(a, b, "weakPlatform")) {
+        // "movingPlatform" must fire BallTouchedPlatform exactly like
+        // "platform"/"weakPlatform" do, or landing on a moving platform
+        // silently stops resetting the combo chain (plan-eng-review Test
+        // Review Iron Rule -- guarded by ContactDispatcherTest, this
+        // class's first-ever unit test).
+        if (isBallVs(a, b, "platform") || isBallVs(a, b, "weakPlatform") || isBallVs(a, b, "movingPlatform")) {
             bus.dispatch(new BallTouchedPlatform());
         }
 

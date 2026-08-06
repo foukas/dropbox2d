@@ -637,12 +637,7 @@ public class GameplayScreen implements Screen, GameEventListener {
         fixtureDef.friction = 0.6f;
         fixtureDef.restitution = 0f;
         Fixture fixture = body.createFixture(fixtureDef);
-        // Distinct tag comes in moving-platforms step 7 (ContactDispatcher
-        // extension + GameplayRenderer color branch land together with it,
-        // guarded by ContactDispatcherTest). "platform" for now so contact
-        // handling and rendering behave like an ordinary static platform
-        // in the interim.
-        fixture.setUserData("platform");
+        fixture.setUserData("movingPlatform");
         shape.dispose();
 
         return body;

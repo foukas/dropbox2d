@@ -46,6 +46,11 @@ public class GameplayRenderer {
     // comments since libGDX's Color constructor takes 0-1 floats, not hex.
     private static final Color NORMAL_PLATFORM_COLOR = new Color(0f, 0.898f, 1f, 1f); // #00e5ff cyan
     private static final Color WEAK_PLATFORM_COLOR = new Color(1f, 0.4196f, 0.2078f, 1f); // #ff6b35 orange
+    // Moving-platforms design doc (plan-eng-review, 2026-08-06) -- neon
+    // green, distinct from both existing platform colors and every other
+    // color already in this palette, so a moving platform reads clearly
+    // within the first minute of a run (Success Criteria).
+    private static final Color MOVING_PLATFORM_COLOR = new Color(0.2235f, 1f, 0.0784f, 1f); // #39ff14 neon green
     private static final Color POWERUP_COLOR = new Color(1f, 0.8235f, 0.2471f, 1f); // #ffd23f gold
     private static final Color WRECKING_BALL_COLOR = new Color(1f, 0.1765f, 0.1765f, 1f); // #ff2d2d red
     // Background palette is now owned by the active Biome (plan-eng-review
@@ -487,8 +492,10 @@ public class GameplayRenderer {
     private void drawPlatform(Body body) {
         if (body == null) return;
         Fixture fixture = body.getFixtureList().get(0);
-        boolean weak = "weakPlatform".equals(fixture.getUserData());
-        Color baseColor = weak ? WEAK_PLATFORM_COLOR : NORMAL_PLATFORM_COLOR;
+        Object tag = fixture.getUserData();
+        Color baseColor = "weakPlatform".equals(tag) ? WEAK_PLATFORM_COLOR
+                : "movingPlatform".equals(tag) ? MOVING_PLATFORM_COLOR
+                : NORMAL_PLATFORM_COLOR;
         shapeRenderer.setColor(baseColor);
 
         PolygonShape shape = (PolygonShape) fixture.getShape();
