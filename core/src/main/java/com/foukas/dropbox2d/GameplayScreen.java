@@ -39,6 +39,7 @@ import com.foukas.dropbox2d.platform.SafeAreaInsets;
 import com.foukas.dropbox2d.physics.DebrisManager;
 import com.foukas.dropbox2d.physics.MovingPlatformManager;
 import com.foukas.dropbox2d.physics.PhysicsNaNGuard;
+import com.foukas.dropbox2d.physics.VelocityClamp;
 import com.foukas.dropbox2d.powerups.PowerUpManager;
 import com.foukas.dropbox2d.powerups.WreckingBallPowerUp;
 import com.foukas.dropbox2d.progression.Biome;
@@ -849,6 +850,17 @@ public class GameplayScreen implements Screen, GameEventListener {
             world.step(FIXED_TIMESTEP, 6, 2);
             physicsAccumulator -= FIXED_TIMESTEP;
             PhysicsNaNGuard.checkAndFix(ballBody, WORLD_WIDTH / 2f, camera.position.y);
+            // VelocityClamp runs after PhysicsNaNGuard (rampage design doc,
+            // plan-eng-review 2026-08-06): a genuinely NaN/Infinite velocity
+            // should be corrected before magnitude logic runs on it. Same
+            // per-substep call site and reasoning as PhysicsNaNGuard --
+            // caps an anomalously large bounce (e.g. rampage's timer
+            // expiring mid-fall through a platform stack) without waiting
+            // for a render frame boundary. Built and wired ahead of the
+            // rampage mechanism itself (ContactDispatcher's break-
+            // eligibility extension) precisely so that mechanism never
+            // exists without its failsafe already in place.
+            VelocityClamp.checkAndClamp(ballBody);
             // Per-substep, not once per render frame (moving-platforms
             // step 9, plan-eng-review outside-voice finding): render()
             // can wrap several substeps depending on frame timing, so a
