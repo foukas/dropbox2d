@@ -598,13 +598,13 @@ public class GameplayScreen implements Screen, GameEventListener {
             if (right != null) availableSpans.add(new float[]{rightAvailableSpanStart, WORLD_WIDTH});
             if (!availableSpans.isEmpty()) {
                 float[] span = availableSpans.get(MathUtils.random(availableSpans.size() - 1));
-                float spanWidth = span[1] - span[0];
-                float inset = Math.min(0.4f, spanWidth / 3f);
-                float lo = span[0] + inset;
-                float hi = span[1] - inset;
-                float pickupX = hi > lo ? MathUtils.random(lo, hi) : (span[0] + span[1]) / 2f;
-                float pickupY = rowY + PLATFORM_THICKNESS / 2f + POWERUP_RADIUS + 0.15f;
+                // Type rolled BEFORE position (rampage design doc, plan-eng-
+                // review 2026-08-06): rampage's placement rule depends on
+                // which type this pickup is, unlike before where position
+                // was type-agnostic.
                 String type = POWER_UP_TYPES[MathUtils.random(POWER_UP_TYPES.length - 1)];
+                float pickupX = pickupXForSpan(span, type);
+                float pickupY = rowY + PLATFORM_THICKNESS / 2f + POWERUP_RADIUS + 0.15f;
                 powerUp = createPowerUpPickup(pickupX, pickupY, type);
             }
         }
@@ -717,6 +717,29 @@ public class GameplayScreen implements Screen, GameEventListener {
         shape.dispose();
 
         return body;
+    }
+
+    /** Rampage spawns near the gap-facing edge of its span (risky to reach
+     * -- rampage design doc, plan-eng-review 2026-08-06, deliberate risk/
+     * reward tradeoff), unlike every other power-up type, which keeps the
+     * existing inset-toward-center placement unchanged. A left span is
+     * always built as {0f, leftAvailableSpanEnd} (wall at 0) and a right
+     * span as {rightAvailableSpanStart, WORLD_WIDTH} (wall at WORLD_WIDTH)
+     * -- span[0] == 0f reliably identifies a left span without needing a
+     * separate side flag threaded through. */
+    private float pickupXForSpan(float[] span, String type) {
+        float spanWidth = span[1] - span[0];
+        if ("rampage".equals(type)) {
+            float edgeInset = Math.min(0.15f, spanWidth / 4f);
+            boolean isLeftSpan = span[0] == 0f;
+            float gapFacingEdge = isLeftSpan ? span[1] : span[0];
+            float sign = isLeftSpan ? -1f : 1f;
+            return gapFacingEdge + sign * edgeInset;
+        }
+        float inset = Math.min(0.4f, spanWidth / 3f);
+        float lo = span[0] + inset;
+        float hi = span[1] - inset;
+        return hi > lo ? MathUtils.random(lo, hi) : (span[0] + span[1]) / 2f;
     }
 
     private Body createPowerUpPickup(float x, float y, String type) {
