@@ -135,4 +135,20 @@ class RampagePowerUpTest {
         assertEquals(2, powerUp.getSmashCount(), "new activation window, live counter starts fresh");
         assertEquals(3, powerUp.getRunBonus(), "bonus keeps accumulating across activations within the same run");
     }
+
+    // User feedback, rampage follow-up 2026-08-06: picking up wrecking ball
+    // while rampage is active should extend rampage's timer, not switch
+    // power-ups (rampage is a strict upgrade over wrecking ball).
+    @Test
+    void extendByWreckingBallPickupAddsTimeWithoutResettingSmashState() {
+        powerUp.activate();
+        powerUp.recordSmash();
+        float remainingBefore = powerUp.getRemaining();
+
+        powerUp.extendByWreckingBallPickup();
+
+        assertTrue(powerUp.getRemaining() > remainingBefore, "extending should add time, not just leave it unchanged");
+        assertTrue(powerUp.isActive());
+        assertEquals(1, powerUp.getSmashCount(), "extending is not an expiry or reset -- the live streak must survive it");
+    }
 }

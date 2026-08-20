@@ -601,9 +601,12 @@ public class GameplayScreen implements Screen, GameEventListener {
                 // Type rolled BEFORE position (rampage design doc, plan-eng-
                 // review 2026-08-06): rampage's placement rule depends on
                 // which type this pickup is, unlike before where position
-                // was type-agnostic.
+                // was type-agnostic. (Rampage's own placement rule was
+                // reverted after playtest -- see pickupXForSpan's doc -- so
+                // placement is type-agnostic again today, but the ordering
+                // is left as-is since a future type-specific rule is likely.)
                 String type = POWER_UP_TYPES[MathUtils.random(POWER_UP_TYPES.length - 1)];
-                float pickupX = pickupXForSpan(span, type);
+                float pickupX = pickupXForSpan(span);
                 float pickupY = rowY + PLATFORM_THICKNESS / 2f + POWERUP_RADIUS + 0.15f;
                 powerUp = createPowerUpPickup(pickupX, pickupY, type);
             }
@@ -719,23 +722,14 @@ public class GameplayScreen implements Screen, GameEventListener {
         return body;
     }
 
-    /** Rampage spawns near the gap-facing edge of its span (risky to reach
-     * -- rampage design doc, plan-eng-review 2026-08-06, deliberate risk/
-     * reward tradeoff), unlike every other power-up type, which keeps the
-     * existing inset-toward-center placement unchanged. A left span is
-     * always built as {0f, leftAvailableSpanEnd} (wall at 0) and a right
-     * span as {rightAvailableSpanStart, WORLD_WIDTH} (wall at WORLD_WIDTH)
-     * -- span[0] == 0f reliably identifies a left span without needing a
-     * separate side flag threaded through. */
-    private float pickupXForSpan(float[] span, String type) {
+    /** Reverted rampage's edge-placement rule after device playtest (user
+     * feedback, rampage follow-up 2026-08-06): near-the-gap is the SAFE
+     * zone in this game (that's where you want to fall), not a risky one,
+     * so edge placement never actually delivered the intended risk/reward
+     * -- every power-up type uses this same inset-toward-center placement
+     * now, unchanged from before rampage existed. */
+    private float pickupXForSpan(float[] span) {
         float spanWidth = span[1] - span[0];
-        if ("rampage".equals(type)) {
-            float edgeInset = Math.min(0.15f, spanWidth / 4f);
-            boolean isLeftSpan = span[0] == 0f;
-            float gapFacingEdge = isLeftSpan ? span[1] : span[0];
-            float sign = isLeftSpan ? -1f : 1f;
-            return gapFacingEdge + sign * edgeInset;
-        }
         float inset = Math.min(0.4f, spanWidth / 3f);
         float lo = span[0] + inset;
         float hi = span[1] - inset;
@@ -971,7 +965,17 @@ public class GameplayScreen implements Screen, GameEventListener {
         for (PowerUpCollected collected : pendingPowerUpPickups) {
             removeBodyFromRows(collected.body());
             world.destroyBody(collected.body());
-            powerUpManager.activate(collected.type());
+            if ("wreckingBall".equals(collected.type()) && "rampage".equals(powerUpManager.getActiveType())) {
+                // Picking up wrecking ball while rampage is active would be
+                // a strict downgrade -- rampage already breaks everything
+                // wrecking ball does, plus NORMAL/MOVING platforms too --
+                // so this repurposes the pickup as a rampage timer
+                // extension instead of switching power-ups (user feedback,
+                // rampage follow-up, 2026-08-06).
+                rampagePowerUp.extendByWreckingBallPickup();
+            } else {
+                powerUpManager.activate(collected.type());
+            }
         }
         pendingPowerUpPickups.clear();
     }

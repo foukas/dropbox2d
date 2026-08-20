@@ -71,6 +71,18 @@ public abstract class AbstractDensityPowerUp implements PowerUp {
     protected void onExpire() {
     }
 
+    /** Adds extra time to the current remaining duration without resetting
+     * density or calling onExpire() -- for a power-up that wants "picking
+     * up a related item while this is already active extends the window"
+     * instead of the usual activate()/reset() exclusivity dance (rampage
+     * follow-up, 2026-08-06: RampagePowerUp exposes this so a wrecking-ball
+     * pickup mid-rampage becomes a timer bonus, not a strict downgrade).
+     * Only meaningful while isActive(); a subclass exposing this publicly
+     * should guard the call site accordingly. */
+    protected void extend(float extraSeconds) {
+        remaining += extraSeconds;
+    }
+
     private void setDensity(float density) {
         for (Fixture fixture : ballBody.getFixtureList()) {
             fixture.setDensity(density);

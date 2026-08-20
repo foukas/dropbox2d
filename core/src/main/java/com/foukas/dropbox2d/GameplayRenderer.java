@@ -499,9 +499,21 @@ public class GameplayRenderer {
     /** Rampage design doc (plan-eng-review, 2026-08-06) -- deliberately its
      * own counter, distinct from the gap-combo (drawComboMultiplier): the
      * two track different things (gap-threading skill vs. rampage smashing)
-     * and must never read as the same number. Positioned symmetrically
-     * opposite the combo multiplier (right half, left-aligned vs. combo's
-     * left half, right-aligned) so neither ever collides with the other.
+     * and must never read as the same number.
+     *
+     * Original placement (top-right, mirroring where drawComboMultiplier's
+     * right edge actually sits) was wrong on two counts, found on device
+     * playtest (rampage follow-up, 2026-08-06): Align.left with wrap=false
+     * ignores targetWidth for positioning entirely -- text just starts at x
+     * and grows rightward unbounded, running off the screen edge at high
+     * growth -- and even a corrected Align.right version would have landed
+     * on TOP of drawComboMultiplier's actual position (its right edge is
+     * x+targetWidth = width-rightMargin, near the screen's top-right
+     * corner, not "the left half" as originally assumed here). Full-width
+     * Align.center instead, matching drawToast's already-proven-safe
+     * pattern: text grows symmetrically from the horizontal center, always
+     * bounded regardless of scale, and a distinct vertical band (0.85f)
+     * keeps it clear of both the top HUD cluster and drawToast (0.7f).
      * Grows with the smash count itself (capped) -- the escalating-
      * spectacle read comes from the text visibly getting bigger as the
      * streak climbs, no extra state/timers needed. */
@@ -515,9 +527,7 @@ public class GameplayRenderer {
         font.getData().setScale(baseScale * growth);
         font.setColor(RAMPAGE_COLOR);
 
-        float leftMargin = 20f;
-        float boxWidth = Gdx.graphics.getWidth() / 2f - leftMargin;
-        font.draw(batch, "SMASH x" + smashCount, Gdx.graphics.getWidth() / 2f, Gdx.graphics.getHeight() - 20f, boxWidth, com.badlogic.gdx.utils.Align.left, false);
+        font.draw(batch, "SMASH x" + smashCount, 0f, Gdx.graphics.getHeight() * 0.85f, Gdx.graphics.getWidth(), com.badlogic.gdx.utils.Align.center, false);
 
         font.setColor(Color.WHITE);
         font.getData().setScale(baseScale);
@@ -566,7 +576,16 @@ public class GameplayRenderer {
 
     private void drawPowerUp(Body body) {
         if (body == null) return;
-        shapeRenderer.setColor(POWERUP_COLOR);
+        // Colored by type (user feedback, rampage follow-up 2026-08-06):
+        // the two pickups were indistinguishable before picking one up --
+        // reuses the exact colors the ball itself turns into once
+        // collected (RAMPAGE_COLOR/WRECKING_BALL_COLOR), so the pickup
+        // color previews what you're about to become.
+        Object tag = body.getFixtureList().get(0).getUserData();
+        Color color = "powerUp:rampage".equals(tag) ? RAMPAGE_COLOR
+                : "powerUp:wreckingBall".equals(tag) ? WRECKING_BALL_COLOR
+                : POWERUP_COLOR;
+        shapeRenderer.setColor(color);
         shapeRenderer.circle(body.getPosition().x, body.getPosition().y, GameplayScreen.POWERUP_RADIUS, 16);
     }
 

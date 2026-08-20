@@ -26,6 +26,13 @@ public class RampagePowerUp extends AbstractDensityPowerUp {
     // from a different density. Free to diverge later by feel.
     private static final float RAMPAGE_DENSITY = 6f;
     private static final float DURATION_SECONDS = 5f;
+    // Placeholder (rampage follow-up, 2026-08-06) -- picking up a wrecking
+    // ball while rampage is active extends rampage's timer by this much
+    // instead of switching power-ups (user feedback: rampage is a strict
+    // upgrade over wrecking ball, since it does everything wrecking ball
+    // does plus more, so activating wrecking ball mid-rampage would be a
+    // pure downgrade). Tune by feel like every other duration constant here.
+    private static final float WRECKING_BALL_BONUS_SECONDS = 3f;
 
     // Live, per-activation count -- decays to 0 on expiry (via onExpire()),
     // not on touch, so it drives its own HUD readout distinct from the
@@ -58,6 +65,14 @@ public class RampagePowerUp extends AbstractDensityPowerUp {
 
     public int getRunBonus() {
         return runBonus;
+    }
+
+    /** Called by GameplayScreen instead of activating wrecking ball when a
+     * wrecking-ball pickup is collected while rampage is already active --
+     * only meaningful while isActive(); GameplayScreen guards the call
+     * site by checking that rampage is the current active type first. */
+    public void extendByWreckingBallPickup() {
+        extend(WRECKING_BALL_BONUS_SECONDS);
     }
 
     @Override
