@@ -890,10 +890,37 @@ public class GameplayScreen implements Screen, GameEventListener {
      * those callbacks, so the actual world mutation happens here, right
      * after world.step() returns and the world is unlocked. */
     private void drainPendingWorldMutations() {
-        for (PlatformDestroyed destroyed : pendingPlatformDestructions) {
+        // Index-based, not for-each: dispatching a synthetic PlatformDestroyed
+        // for a MOVING side's sibling body (below) re-enters onEvent(), which
+        // appends to this same list -- a for-each would throw
+        // ConcurrentModificationException. originalCount marks the boundary
+        // between genuinely ball-triggered entries (queued before this method
+        // started) and synthetic sibling entries this method itself appends,
+        // so recordSmashIfRampageTriggered() only counts each split-body pair
+        // once (rampage design doc, plan-eng-review 2026-08-06 -- "a single
+        // PlatformDestroyed-equivalent outcome for the pair, not two
+        // independent break events").
+        int originalCount = pendingPlatformDestructions.size();
+        for (int i = 0; i < pendingPlatformDestructions.size(); i++) {
+            PlatformDestroyed destroyed = pendingPlatformDestructions.get(i);
+            if (i < originalCount) {
+                recordSmashIfRampageTriggered(destroyed.body());
+            }
+            // Found BEFORE removeBodyFromRows(), which nulls out whichever
+            // row field matched destroyed.body() -- looking it up after
+            // would make the pairing unrecoverable.
+            Body sibling = findMovingSibling(destroyed.body());
             removeBodyFromRows(destroyed.body());
             world.destroyBody(destroyed.body());
             debrisManager.spawnDebris(destroyed.x(), destroyed.y(), destroyed.width());
+            if (sibling != null && !isAlreadyQueuedForDestruction(sibling)) {
+                // Dispatched through the normal event path (not destroyed
+                // directly here) so the sibling gets its own shake/particle
+                // burst via onEvent() -- destroying it inline would silently
+                // skip its FX, reading as a bug (plan-eng-review outside-
+                // voice finding).
+                eventBus.dispatch(new PlatformDestroyed(sibling, sibling.getPosition().x, sibling.getPosition().y, platformWidth(sibling)));
+            }
         }
         pendingPlatformDestructions.clear();
 
@@ -903,6 +930,43 @@ public class GameplayScreen implements Screen, GameEventListener {
             powerUpManager.activate(collected.type());
         }
         pendingPowerUpPickups.clear();
+    }
+
+    /** A MOVING side's filler ("platform" tag) and kinematic sliver
+     * ("movingPlatform" tag) overlap to read as one continuous platform --
+     * breaking either half during rampage must break both, or the
+     * surviving half floats/patrols alone with a visible gap where its
+     * partner used to be (rampage design doc Constraints). Returns null
+     * for NORMAL/WEAK platforms (no pairing) or if body doesn't match any
+     * tracked row (shouldn't happen, defensive). */
+    private Body findMovingSibling(Body body) {
+        for (PlatformRow row : rows) {
+            if (row.left == body && row.leftKinematic != null) return row.leftKinematic;
+            if (row.leftKinematic == body && row.left != null) return row.left;
+            if (row.right == body && row.rightKinematic != null) return row.rightKinematic;
+            if (row.rightKinematic == body && row.right != null) return row.right;
+        }
+        return null;
+    }
+
+    /** "platform"/"movingPlatform" tags are only ever break-eligible while
+     * rampage is active (ContactDispatcher.preSolve()'s gate) -- "weakPlatform"
+     * breaks regardless of rampage state, so checking the destroyed body's
+     * own tag is a sufficient, self-contained signal for "this specific
+     * break was rampage-triggered" without PlatformDestroyed needing an
+     * explicit flag. */
+    private void recordSmashIfRampageTriggered(Body body) {
+        Object tag = body.getFixtureList().get(0).getUserData();
+        if ("platform".equals(tag) || "movingPlatform".equals(tag)) {
+            rampagePowerUp.recordSmash();
+        }
+    }
+
+    private float platformWidth(Body platformBody) {
+        PolygonShape shape = (PolygonShape) platformBody.getFixtureList().get(0).getShape();
+        Vector2 v = new Vector2();
+        shape.getVertex(0, v);
+        return Math.abs(v.x) * 2f;
     }
 
     private void removeBodyFromRows(Body body) {
