@@ -89,6 +89,16 @@ public class GameOverScreen implements Screen {
         font.draw(batch, "GAME OVER", 0f, height * 0.65f, width, Align.center, false);
         font.draw(batch, "Depth: " + (int) gameplayScreen.getDepthScore() + "m   Best: " + (int) playerProgress.getBestDepth() + "m",
                 0f, height * 0.5f, width, Align.center, false);
+        // Hidden entirely (not shown as "+0") on the common case -- most
+        // runs never pick up rampage at all (rampage design doc, plan-eng-
+        // review Code Quality finding: a bonus line on nearly every run
+        // reads as clutter, not information). Deliberately un-persisted --
+        // see RampagePowerUp's class doc for why it never touches
+        // playerProgress.reportDepth() or bestDepth.
+        int rampageBonus = gameplayScreen.getRampageBonus();
+        if (rampageBonus > 0) {
+            font.draw(batch, "Rampage bonus: +" + rampageBonus, 0f, height * 0.5f - font.getLineHeight(), width, Align.center, false);
+        }
         font.draw(batch, "Tap to retry", 0f, height * 0.4f, width, Align.center, false);
 
         // Preserved from the pre-Screen implementation, same pixel regions.

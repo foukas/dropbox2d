@@ -378,8 +378,9 @@ public class GameplayScreen implements Screen, GameEventListener {
             // as a freeze rather than a clean exception.
             if (!isAlreadyQueuedForDestruction(destroyed.body())) {
                 pendingPlatformDestructions.add(destroyed);
-                screenShake.trigger(BREAK_SHAKE_DURATION, BREAK_SHAKE_MAGNITUDE);
-                int particleCount = MathUtils.clamp(Math.round(destroyed.width() * 2f), 4, 14);
+                float escalation = rampageEscalationScale(destroyed.body());
+                screenShake.trigger(BREAK_SHAKE_DURATION, BREAK_SHAKE_MAGNITUDE * escalation);
+                int particleCount = MathUtils.clamp(Math.round(destroyed.width() * 2f * escalation), 4, 24);
                 particleSystem.burst(destroyed.x(), destroyed.y(), DEBRIS_COLOR, particleCount);
             }
         } else if (event instanceof PowerUpCollected collected) {
@@ -390,6 +391,26 @@ public class GameplayScreen implements Screen, GameEventListener {
                 toastTimer = TOAST_DURATION;
             }
         }
+    }
+
+    /** Rampage-triggered breaks (platform/movingPlatform tags -- only ever
+     * break-eligible while rampage is active) escalate FX intensity with
+     * the current smash streak; weakPlatform breaks (always eligible,
+     * unrelated to rampage) are unaffected (scale 1). Read here, in
+     * onEvent(), BEFORE drainPendingWorldMutations() increments the
+     * counter for this exact break -- "+1" approximates "this is about to
+     * become smash N." Not exact for a MOVING pair's second half (counted
+     * once per pair, not per body -- see recordSmashIfRampageTriggered()),
+     * but this is a feel effect, not a scoring integrity concern, so that
+     * approximation is fine. Capped at 3x so a long streak doesn't produce
+     * an absurd shake/particle count. */
+    private float rampageEscalationScale(Body body) {
+        Object tag = body.getFixtureList().get(0).getUserData();
+        if (!("platform".equals(tag) || "movingPlatform".equals(tag))) {
+            return 1f;
+        }
+        int upcomingCount = rampagePowerUp.getSmashCount() + 1;
+        return Math.min(1f + upcomingCount * 0.15f, 3f);
     }
 
     private boolean isAlreadyQueuedForDestruction(Body body) {
@@ -1141,6 +1162,20 @@ public class GameplayScreen implements Screen, GameEventListener {
 
     float getDepthScore() {
         return depthScore;
+    }
+
+    // Package-private: read by GameOverScreen for the conditional bonus
+    // line. Run-scoped total, never persisted (see RampagePowerUp's class
+    // doc).
+    int getRampageBonus() {
+        return rampagePowerUp.getRunBonus();
+    }
+
+    // Package-private: read by GameplayRenderer for the rampage HUD
+    // counter. Live, per-activation count -- decays to 0 when rampage
+    // expires (see RampagePowerUp's class doc), distinct from getRampageBonus().
+    int getRampageSmashCount() {
+        return rampagePowerUp.getSmashCount();
     }
 
     boolean isUseTilt() {

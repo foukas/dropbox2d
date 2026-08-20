@@ -53,6 +53,12 @@ public class GameplayRenderer {
     private static final Color MOVING_PLATFORM_COLOR = new Color(0.2235f, 1f, 0.0784f, 1f); // #39ff14 neon green
     private static final Color POWERUP_COLOR = new Color(1f, 0.8235f, 0.2471f, 1f); // #ffd23f gold
     private static final Color WRECKING_BALL_COLOR = new Color(1f, 0.1765f, 0.1765f, 1f); // #ff2d2d red
+    // Rampage design doc (plan-eng-review, 2026-08-06) -- distinct from
+    // WRECKING_BALL_COLOR (both are "ball" power-up states, but the ball's
+    // color previously keyed off powerUpManager.isActive() alone, which
+    // didn't distinguish which power-up -- see the ball-color fix in draw()).
+    // Hot magenta, distinct from every other color already in this palette.
+    private static final Color RAMPAGE_COLOR = new Color(1f, 0f, 0.6f, 1f); // #ff0099
     // Background palette is now owned by the active Biome (plan-eng-review
     // biome progression step 4) -- DepthAtmosphere.saturationFor()'s
     // grid-line intensity and SkinTier's ball/platform colors stay on
@@ -215,7 +221,15 @@ public class GameplayRenderer {
 
         Body ballBody = screen.getBallBody();
         boolean gameOver = screen.getGameOverController().isGameOver();
-        Color ballColor = gameOver ? Color.RED : (screen.getPowerUpManager().isActive() ? WRECKING_BALL_COLOR : screen.currentSkinTier().getColor());
+        // Fixed to key off the ACTIVE TYPE, not just isActive() (rampage
+        // design doc, plan-eng-review 2026-08-06) -- before rampage
+        // existed, isActive() alone was equivalent to "wrecking ball is
+        // active" since that was the only power-up type, so this bug had
+        // no visible symptom until a second type existed.
+        Color ballColor = gameOver ? Color.RED
+                : "rampage".equals(screen.getPowerUpManager().getActiveType()) ? RAMPAGE_COLOR
+                : screen.getPowerUpManager().isActive() ? WRECKING_BALL_COLOR
+                : screen.currentSkinTier().getColor();
         drawTrail(screen, ballColor);
         shapeRenderer.setColor(ballColor);
         shapeRenderer.circle(ballBody.getPosition().x, ballBody.getPosition().y, GameplayScreen.BALL_RADIUS, 24);
@@ -239,6 +253,7 @@ public class GameplayRenderer {
         drawHudText(screen);
 
         drawComboMultiplier(screen);
+        drawRampageCounter(screen);
         drawToast(screen);
         if (paused) {
             drawPauseText();
@@ -476,6 +491,33 @@ public class GameplayRenderer {
         float rightMargin = 20f;
         float boxWidth = Gdx.graphics.getWidth() / 2f - rightMargin;
         font.draw(batch, "x" + combo, Gdx.graphics.getWidth() / 2f, Gdx.graphics.getHeight() - 20f, boxWidth, com.badlogic.gdx.utils.Align.right, false);
+
+        font.setColor(Color.WHITE);
+        font.getData().setScale(baseScale);
+    }
+
+    /** Rampage design doc (plan-eng-review, 2026-08-06) -- deliberately its
+     * own counter, distinct from the gap-combo (drawComboMultiplier): the
+     * two track different things (gap-threading skill vs. rampage smashing)
+     * and must never read as the same number. Positioned symmetrically
+     * opposite the combo multiplier (right half, left-aligned vs. combo's
+     * left half, right-aligned) so neither ever collides with the other.
+     * Grows with the smash count itself (capped) -- the escalating-
+     * spectacle read comes from the text visibly getting bigger as the
+     * streak climbs, no extra state/timers needed. */
+    private void drawRampageCounter(GameplayScreen screen) {
+        if (!"rampage".equals(screen.getPowerUpManager().getActiveType())) return;
+        int smashCount = screen.getRampageSmashCount();
+        if (smashCount <= 0) return;
+
+        float baseScale = font.getData().scaleX;
+        float growth = Math.min(1.2f + smashCount * 0.15f, 3.0f);
+        font.getData().setScale(baseScale * growth);
+        font.setColor(RAMPAGE_COLOR);
+
+        float leftMargin = 20f;
+        float boxWidth = Gdx.graphics.getWidth() / 2f - leftMargin;
+        font.draw(batch, "SMASH x" + smashCount, Gdx.graphics.getWidth() / 2f, Gdx.graphics.getHeight() - 20f, boxWidth, com.badlogic.gdx.utils.Align.left, false);
 
         font.setColor(Color.WHITE);
         font.getData().setScale(baseScale);
