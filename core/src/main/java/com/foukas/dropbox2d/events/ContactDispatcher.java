@@ -9,22 +9,33 @@ import com.badlogic.gdx.physics.box2d.Manifold;
 import com.badlogic.gdx.physics.box2d.PolygonShape;
 import com.foukas.dropbox2d.physics.DestructiblePlatform;
 
+import java.util.function.BooleanSupplier;
+
 /** Box2D's own contact callback, wrapped to dispatch typed events instead of
  * mutating game state directly. Fixture user-data tagging convention:
- * "ball", "platform" (solid, permanent), "weakPlatform" (breakable),
- * "movingPlatform" (solid, kinematic, patrols -- moving-platforms design
- * doc, plan-eng-review 2026-08-06), "powerUp:&lt;type&gt;" (sensor pickup,
- * colon-delimited type tag). Every event here is dispatched once, from the
- * contact that triggered it -- nothing tracks ongoing "is touching" state,
- * so destroying a body afterward (which this class never does directly --
- * see DestructiblePlatform's class comment) never leaves anything stale. */
+ * "ball", "platform" (solid, permanent -- also breakable while rampage is
+ * active, rampage design doc plan-eng-review 2026-08-06), "weakPlatform"
+ * (always breakable), "movingPlatform" (solid, kinematic, patrols -- also
+ * breakable while rampage is active), "powerUp:&lt;type&gt;" (sensor
+ * pickup, colon-delimited type tag). Every event here is dispatched once,
+ * from the contact that triggered it -- nothing tracks ongoing "is
+ * touching" state, so destroying a body afterward (which this class never
+ * does directly -- see DestructiblePlatform's class comment) never leaves
+ * anything stale. */
 public class ContactDispatcher implements ContactListener {
     private static final String POWERUP_PREFIX = "powerUp:";
 
     private final GameEventBus bus;
+    // Deliberately a BooleanSupplier, not a hard dependency on
+    // PowerUpManager's concrete type -- keeps this events-package class
+    // decoupled from the powerups package (rampage design doc Constraints).
+    // GameplayScreen wires it to the manager's own exclusivity guarantee:
+    // () -> "rampage".equals(powerUpManager.getActiveType()).
+    private final BooleanSupplier rampageActive;
 
-    public ContactDispatcher(GameEventBus bus) {
+    public ContactDispatcher(GameEventBus bus, BooleanSupplier rampageActive) {
         this.bus = bus;
+        this.rampageActive = rampageActive;
     }
 
     @Override
@@ -64,8 +75,19 @@ public class ContactDispatcher implements ContactListener {
         Fixture a = contact.getFixtureA();
         Fixture b = contact.getFixtureB();
 
-        Body weakPlatformBody = ballVsTaggedBody(a, b, "weakPlatform");
-        if (weakPlatformBody == null) {
+        // "weakPlatform" is always break-eligible. "platform"/"movingPlatform"
+        // only become break-eligible while rampage is active -- the same
+        // momentum math applies regardless of tag (rampage design doc
+        // Constraints: "no new physics re-derivation needed"), only the
+        // set of eligible tags changes.
+        Body breakableBody = ballVsTaggedBody(a, b, "weakPlatform");
+        if (breakableBody == null && rampageActive.getAsBoolean()) {
+            breakableBody = ballVsTaggedBody(a, b, "platform");
+            if (breakableBody == null) {
+                breakableBody = ballVsTaggedBody(a, b, "movingPlatform");
+            }
+        }
+        if (breakableBody == null) {
             return;
         }
 
@@ -74,8 +96,8 @@ public class ContactDispatcher implements ContactListener {
 
         if (DestructiblePlatform.shouldBreak(momentum)) {
             contact.setEnabled(false);
-            float width = platformWidth(weakPlatformBody);
-            bus.dispatch(new PlatformDestroyed(weakPlatformBody, weakPlatformBody.getPosition().x, weakPlatformBody.getPosition().y, width));
+            float width = platformWidth(breakableBody);
+            bus.dispatch(new PlatformDestroyed(breakableBody, breakableBody.getPosition().x, breakableBody.getPosition().y, width));
         }
     }
 

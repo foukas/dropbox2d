@@ -41,6 +41,7 @@ import com.foukas.dropbox2d.physics.MovingPlatformManager;
 import com.foukas.dropbox2d.physics.PhysicsNaNGuard;
 import com.foukas.dropbox2d.physics.VelocityClamp;
 import com.foukas.dropbox2d.powerups.PowerUpManager;
+import com.foukas.dropbox2d.powerups.RampagePowerUp;
 import com.foukas.dropbox2d.powerups.WreckingBallPowerUp;
 import com.foukas.dropbox2d.progression.Biome;
 import com.foukas.dropbox2d.progression.PlayerProgress;
@@ -111,9 +112,10 @@ public class GameplayScreen implements Screen, GameEventListener {
     // Package-private: also read by GameplayRenderer.
     static final float POWERUP_RADIUS = 0.25f;
     // Registered power-up types (must match PowerUpManager.register keys in
-    // resetForNewRun). One entry today; adding a second type is adding it here
-    // plus a register() call -- pickup placement/rendering stay type-agnostic.
-    private static final String[] POWER_UP_TYPES = {"wreckingBall"};
+    // resetForNewRun). Adding a type is adding it here plus a register()
+    // call -- pickup placement/rendering stay type-agnostic (rampage's own
+    // edge-placement rule, added in a later step, is the one exception).
+    private static final String[] POWER_UP_TYPES = {"wreckingBall", "rampage"};
 
     private static final float SCROLL_BASE_SPEED = 1.6f;
     private static final float SCROLL_RAMP_PER_METER = 0.02f;
@@ -201,6 +203,10 @@ public class GameplayScreen implements Screen, GameEventListener {
     private DebrisManager debrisManager;
     private MovingPlatformManager movingPlatformManager;
     private PowerUpManager powerUpManager;
+    // Kept as its own field (not just registered with powerUpManager) so
+    // GameplayScreen can call recordSmash()/read the smash counter and
+    // run bonus directly, without a lookup through the registry each time.
+    private RampagePowerUp rampagePowerUp;
 
     private SkinTier highestAnnouncedTier;
     private int lastComboChain;
@@ -299,7 +305,12 @@ public class GameplayScreen implements Screen, GameEventListener {
         eventBus.subscribe(scoreManager);
         eventBus.subscribe(gameOverController);
         eventBus.subscribe(this);
-        world.setContactListener(new ContactDispatcher(eventBus));
+        // Lambda captures the powerUpManager FIELD, not a local value --
+        // safe even though powerUpManager isn't assigned until later in
+        // this same method, since preSolve() (the only caller) never runs
+        // until stepPhysics() executes on a later frame, well after this
+        // method returns (rampage design doc, plan-eng-review 2026-08-06).
+        world.setContactListener(new ContactDispatcher(eventBus, () -> "rampage".equals(powerUpManager.getActiveType())));
 
         rows.clear();
         pendingScoreRows.clear();
@@ -319,6 +330,8 @@ public class GameplayScreen implements Screen, GameEventListener {
         ballBody = createBall(WORLD_WIDTH / 2f, spawnY + 1.5f);
         powerUpManager = new PowerUpManager();
         powerUpManager.register("wreckingBall", new WreckingBallPowerUp(ballBody));
+        rampagePowerUp = new RampagePowerUp(ballBody);
+        powerUpManager.register("rampage", rampagePowerUp);
         debrisManager = new DebrisManager(world);
         movingPlatformManager = new MovingPlatformManager();
 
