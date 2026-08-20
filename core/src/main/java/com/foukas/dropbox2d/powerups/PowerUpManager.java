@@ -21,6 +21,23 @@ public class PowerUpManager {
         if (powerUp == null) {
             return; // unknown type tag -- ignore rather than crash
         }
+        // Reset whichever OTHER power-up was previously active before
+        // activating the new one (rampage design doc, plan-eng-review
+        // 2026-08-06) -- "only one power-up is active at a time" was true
+        // by coincidence until a second density-driven power-up existed;
+        // without this, e.g. picking up rampage while wrecking ball is
+        // still active would leave wrecking ball's density change applied
+        // underneath rampage's, until whichever timer expires first
+        // silently snaps density back out from under the other. Skipped
+        // when reactivating the SAME type -- that's just a duration
+        // refresh (see WreckingBallPowerUpTest.reactivatingWhileActive
+        // RefreshesDuration), not an exclusivity conflict.
+        if (activeType != null && !activeType.equals(type)) {
+            PowerUp previous = registry.get(activeType);
+            if (previous != null) {
+                previous.reset();
+            }
+        }
         powerUp.activate();
         activeType = type;
     }
