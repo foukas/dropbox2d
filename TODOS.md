@@ -32,6 +32,14 @@
 **Context:** Revisit only after the base moving-platform mechanic (Approach B) ships and has been playtested — evaluating the combo before the base mechanic exists isn't meaningful.
 **Depends on / blocked by:** The moving-platforms design doc shipping first.
 
+## Seesaw + rampage interaction (deferred)
+**What:** Should a seesaw plank ever become rampage-breakable, and what happens to the joint/physics if it's destroyed mid-tip?
+**Why:** The seesaw eng-review (2026-08-20, design doc `foukas-main-design-20260820-150834.md`) explicitly decided the plank is NOT rampage-breakable this slice -- tagged `"seesawPlank"` and deliberately excluded from `ContactDispatcher`'s breakable-tag list (`preSolve()`) and `rampageEscalationScale()`'s FX check, unlike `"platform"`/`"weakPlatform"`/`"movingPlatform"`. Named in the design doc's Open Questions as a 10x-vision item.
+**Pros:** Captures real design thought (the tag decision, the physics-stability question) now, while it's fresh, instead of losing it once the session ends.
+**Cons:** Speculative until seesaws actually ship and get played with -- may never be worth building.
+**Context:** Would need a mid-run destruction path in `drainPendingWorldMutations()`/`removeBodyFromRows()` for the plank+fulcrum+joint (identified during eng-review, ruled out as unnecessary work for the bare-mechanic slice since the plank currently has no mid-run destruction trigger at all). Revisit only after the bare-mechanic seesaw ships and has been playtested.
+**Depends on / blocked by:** The seesaw bare-mechanic design doc shipping first.
+
 ## Investigate moving-platform friction dragging the ball near a gap edge
 **What:** A moving platform's friction (0.6, unchanged from static platforms — `GameplayScreen.createPlatformSegment()`) could drag a ball resting near a gap edge laterally, in a way the gap-reachability math doesn't model. Flagged by the outside-voice review during `/plan-eng-review` on the moving-platforms design doc (2026-08-06) — not raised in any of that doc's 3 spec-review rounds.
 **Why:** `GapReachabilityValidator`'s amplitude-shrink transform only bounds the ball's worst-case fall trajectory through the gap; it says nothing about lateral drag from standing on a moving surface near an edge.
