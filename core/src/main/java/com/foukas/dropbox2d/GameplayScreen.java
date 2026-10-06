@@ -1142,6 +1142,19 @@ public class GameplayScreen implements Screen, GameEventListener {
             if (row.right == body) row.right = null;
             if (row.leftKinematic == body) row.leftKinematic = null;
             if (row.rightKinematic == body) row.rightKinematic = null;
+            if (row.leftSeesawPlank == body || row.leftSeesawFulcrum == body) {
+                // Box2D destroys the joint along with either body -- drop
+                // the Java-side reference in the same pass so it never
+                // dangles (seesaw design doc, Joint cleanup constraint).
+                row.leftSeesawJoint = null;
+                if (row.leftSeesawPlank == body) row.leftSeesawPlank = null;
+                if (row.leftSeesawFulcrum == body) row.leftSeesawFulcrum = null;
+            }
+            if (row.rightSeesawPlank == body || row.rightSeesawFulcrum == body) {
+                row.rightSeesawJoint = null;
+                if (row.rightSeesawPlank == body) row.rightSeesawPlank = null;
+                if (row.rightSeesawFulcrum == body) row.rightSeesawFulcrum = null;
+            }
             if (row.powerUp == body) row.powerUp = null;
         }
     }
@@ -1353,6 +1366,22 @@ public class GameplayScreen implements Screen, GameEventListener {
         // step 5).
         Body leftKinematic;
         Body rightKinematic;
+        // Non-null only when the matching side is PlatformType.SEESAW
+        // (seesaw step 6, mirroring leftKinematic/rightKinematic above) --
+        // left/right stay the static filler body (wall to fulcrum) in that
+        // case. The fulcrum has NO fixture (pure joint anchor), so it must
+        // never be passed to anything that reads getFixtureList().get(0)
+        // (drawPlatform(), platformWidth(), the tag checks). The joint
+        // reference is kept for the deferred angular-velocity launch
+        // (design doc Approach C) -- nothing reads it this slice, but it
+        // must be nulled whenever either body goes, since Box2D frees the
+        // joint itself when either attached body is destroyed.
+        Body leftSeesawPlank;
+        Body leftSeesawFulcrum;
+        RevoluteJoint leftSeesawJoint;
+        Body rightSeesawPlank;
+        Body rightSeesawFulcrum;
+        RevoluteJoint rightSeesawJoint;
         Body powerUp;
 
         PlatformRow(float y, Body left, Body right, Body powerUp) {
