@@ -32,6 +32,7 @@ import com.foukas.dropbox2d.fx.ParticleSystem;
 import com.foukas.dropbox2d.fx.ScreenShake;
 import com.foukas.dropbox2d.generation.GapReachabilityValidator;
 import com.foukas.dropbox2d.generation.MovingPlatformReachability;
+import com.foukas.dropbox2d.generation.SeesawGeometry;
 import com.foukas.dropbox2d.input.InputProvider;
 import com.foukas.dropbox2d.input.TapInputProvider;
 import com.foukas.dropbox2d.input.TiltInputProvider;
@@ -561,18 +562,16 @@ public class GameplayScreen implements Screen, GameEventListener {
             // Validate against the narrowest gap either side's patrol
             // amplitude could ever produce (0 for a non-MOVING side --
             // identical to today's un-shrunk check in that case), plus a
-            // check that a MOVING side's eventual flanking span can
-            // actually fit the split-body geometry it will need (moving-
-            // platforms step 6) -- reject and reroll on either failure,
-            // never clamp or build broken geometry.
+            // check that a MOVING or SEESAW side's eventual flanking span
+            // can actually fit the geometry it will need (moving-platforms
+            // step 6, seesaw step 5 -- see sideFits()) -- reject and reroll
+            // on either failure, never clamp or build broken geometry.
             MovingPlatformReachability.AdjustedGap adjusted =
                     MovingPlatformReachability.shrinkForAmplitude(gapStart, gapWidth, leftAmplitude, rightAmplitude);
             boolean reachable = GapReachabilityValidator.isReachable(
                     adjusted.gapStart(), adjusted.gapWidth(), WORLD_WIDTH, MAX_HORIZONTAL_SPEED, timeToFall);
-            boolean leftFits = leftType != PlatformType.MOVING
-                    || MovingPlatformReachability.fitsSplitBodyGeometry(gapStart, MOVING_PLATFORM_WIDTH, MOVING_PLATFORM_AMPLITUDE, MIN_FILLER_WIDTH);
-            boolean rightFits = rightType != PlatformType.MOVING
-                    || MovingPlatformReachability.fitsSplitBodyGeometry(WORLD_WIDTH - attemptGapEnd, MOVING_PLATFORM_WIDTH, MOVING_PLATFORM_AMPLITUDE, MIN_FILLER_WIDTH);
+            boolean leftFits = sideFits(leftType, gapStart);
+            boolean rightFits = sideFits(rightType, WORLD_WIDTH - attemptGapEnd);
 
             if (reachable && leftFits && rightFits) {
                 break;
@@ -640,6 +639,23 @@ public class GameplayScreen implements Screen, GameEventListener {
         row.rightKinematic = rightKinematic;
         rows.add(row);
         pendingScoreRows.addLast(row);
+    }
+
+    /** Per-side geometry fit for spawnNextRow()'s retry loop -- a MOVING
+     * side must fit its split-body geometry (moving-platforms step 6), a
+     * SEESAW side its plank plus filler (seesaw step 5); NORMAL/WEAK
+     * always fit. Extracted once SEESAW made the inline left/right
+     * conditions a second copy of a two-type branch. */
+    private boolean sideFits(PlatformType type, float flankingSpan) {
+        switch (type) {
+            case MOVING:
+                return MovingPlatformReachability.fitsSplitBodyGeometry(
+                        flankingSpan, MOVING_PLATFORM_WIDTH, MOVING_PLATFORM_AMPLITUDE, MIN_FILLER_WIDTH);
+            case SEESAW:
+                return SeesawGeometry.fitsSeesawGeometry(flankingSpan, SEESAW_HALF_LENGTH, MIN_FILLER_WIDTH);
+            default:
+                return true;
+        }
     }
 
     /** Splits a MOVING side's flanking segment into a static filler and a
