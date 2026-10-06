@@ -1,6 +1,6 @@
 # Session Handoff — dropbox2d
 
-Written 2026-09-15 to let a different logged-in user/account pick up this project without
+Written 2026-09-15 (updated 2026-10-06 when the seesaw shipped) to let a different logged-in user/account pick up this project without
 re-deriving context. Nothing here is guessable from the code alone — it's operational
 knowledge, standing decisions, and state that only existed in a prior chat session.
 
@@ -16,22 +16,14 @@ design doc under `~/.gstack/projects/Test/` (see slug warning below):
 - Biome-based depth progression (`foukas-main-design-20260803-143417.md`)
 - Moving platforms (`foukas-main-design-20260805-095358.md`)
 - Rampage power-up (`foukas-main-design-20260806-141746.md`, marked `SHIPPED`)
+- Seesaw bare mechanic (`foukas-main-design-20260820-150834.md`, marked `SHIPPED` 2026-10-06)
+  — the codebase's first Box2D joint (revolute) and first collision filter
+  (`SEESAW_NO_COLLIDE_GROUP`, a reserved, world-global `groupIndex`). All 10 Next Steps
+  landed in commits `4359400..bdcf638`, playtested on desktop and the Galaxy A56.
 
-**In progress, NOT yet implemented:** a seesaw platform — the first Box2D joint (revolute
-joint) anywhere in this codebase. The design doc
-(`~/.gstack/projects/Test/foukas-main-design-20260820-150834.md`) has been through both
-`/office-hours` (design, spec-reviewed 2 rounds, approved) and `/plan-eng-review`
-(architecture-reviewed, 9 findings total — 4 interactive + 5 from an outside-voice
-cross-model pass — all resolved). The doc ends with a `## GSTACK REVIEW REPORT` section
-whose verdict is **ENG REVIEW CLEARED — ready to implement.** Its Next Steps section has a
-corrected, code-line-referenced 10-step implementation plan (roll-order slot, per-biome
-`seesawChance`, a `groupIndex`-filter fixture overload, body construction + fixture tagging,
-a new `SeesawGeometry` pure function, `PlatformRow` restructuring, `spawnNextRow()` wiring,
-rotation-aware rendering, row-recycling cleanup, and test additions).
-
-**Implementation has not started.** When last asked "ready to start implementation?" the
-answer was explicitly **"Not yet"** — this was a deliberate pause, not an oversight. Confirm
-with whoever is now driving before starting, rather than assuming this note means "go."
+**Nothing is in progress.** Next candidates live in `TODOS.md` — including a new "Seesaw
+follow-ups" item (angular-velocity launch, passage integration, constant tuning). Ask
+whoever is driving what to pick up next; don't assume.
 
 ## Gstack slug mismatch (do not lose time rediscovering this)
 
@@ -93,15 +85,13 @@ question.
   and explicitly said: **leave it as-is, revisit "later as the game improves in features."**
   Do not "fix" this without it being raised again by the user.
 - **Seesaw + rampage interaction:** deliberately deferred (not scoped into the seesaw bare
-  mechanic). Tracked as its own item in `TODOS.md` ("Seesaw + rampage interaction (deferred)")
-  with the reasoning already written out there — read it before re-deciding this.
+  mechanic). The plank is never breakable; its filler IS rampage-breakable (explicit user
+  call, 2026-10-06). Tracked as its own item in `TODOS.md` ("Seesaw + rampage interaction
+  (deferred)") with the reasoning already written out there — read it before re-deciding this.
 
 ## What to read, in order, to fully resume
 
 1. This file.
-2. `TODOS.md` (repo root) — current backlog, most recently updated with the seesaw+rampage
-   deferred item.
-3. `~/.gstack/projects/Test/foukas-main-design-20260820-150834.md` — the seesaw design doc,
-   including its `## GSTACK REVIEW REPORT` section (the actual implementation plan is its
-   Next Steps section, 10 items).
-4. `git log --oneline -20` in the repo — recent commit history for what's actually landed.
+2. `TODOS.md` (repo root) — current backlog, most recently updated when the seesaw shipped.
+3. `git log --oneline -20` in the repo — recent commit history for what's actually landed.
+   Design docs for any shipped feature are under `~/.gstack/projects/Test/` (see slug warning).
