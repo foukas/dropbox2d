@@ -1268,6 +1268,19 @@ public class GameplayScreen implements Screen, GameEventListener {
                 movingPlatformManager.untrack(row.rightKinematic);
                 world.destroyBody(row.rightKinematic);
             }
+            // Same reasoning for a SEESAW side (seesaw step 9): the plank
+            // is never breakable, so recycling is the only place its plank
+            // and fulcrum are ever destroyed. Destroying the plank frees
+            // the joint natively; the fulcrum then goes with no joint left
+            // attached. The Java-side joint reference is nulled in the
+            // same pass so it never dangles (mirrors
+            // MovingPlatformManager.untrack()'s reason for existing).
+            if (row.leftSeesawPlank != null) world.destroyBody(row.leftSeesawPlank);
+            if (row.leftSeesawFulcrum != null) world.destroyBody(row.leftSeesawFulcrum);
+            if (row.rightSeesawPlank != null) world.destroyBody(row.rightSeesawPlank);
+            if (row.rightSeesawFulcrum != null) world.destroyBody(row.rightSeesawFulcrum);
+            row.leftSeesawJoint = null;
+            row.rightSeesawJoint = null;
             if (row.powerUp != null) world.destroyBody(row.powerUp);
             rows.remove(row);
         }
