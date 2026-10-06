@@ -16,7 +16,9 @@ import java.util.function.BooleanSupplier;
  * "ball", "platform" (solid, permanent -- also breakable while rampage is
  * active, rampage design doc plan-eng-review 2026-08-06), "weakPlatform"
  * (always breakable), "movingPlatform" (solid, kinematic, patrols -- also
- * breakable while rampage is active), "powerUp:&lt;type&gt;" (sensor
+ * breakable while rampage is active), "seesawPlank" (dynamic, revolute-
+ * jointed -- never breakable, not even during rampage, seesaw design doc
+ * 2026-08-20), "powerUp:&lt;type&gt;" (sensor
  * pickup, colon-delimited type tag). Every event here is dispatched once,
  * from the contact that triggered it -- nothing tracks ongoing "is
  * touching" state, so destroying a body afterward (which this class never
@@ -47,8 +49,11 @@ public class ContactDispatcher implements ContactListener {
         // "platform"/"weakPlatform" do, or landing on a moving platform
         // silently stops resetting the combo chain (plan-eng-review Test
         // Review Iron Rule -- guarded by ContactDispatcherTest, this
-        // class's first-ever unit test).
-        if (isBallVs(a, b, "platform") || isBallVs(a, b, "weakPlatform") || isBallVs(a, b, "movingPlatform")) {
+        // class's first-ever unit test). "seesawPlank" joins the chain for
+        // the same reason (seesaw step 4) -- but is deliberately absent from
+        // preSolve()'s rampage-breakable list below.
+        if (isBallVs(a, b, "platform") || isBallVs(a, b, "weakPlatform") || isBallVs(a, b, "movingPlatform")
+                || isBallVs(a, b, "seesawPlank")) {
             bus.dispatch(new BallTouchedPlatform());
         }
 

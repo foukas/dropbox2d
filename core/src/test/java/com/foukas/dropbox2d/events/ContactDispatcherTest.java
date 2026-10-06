@@ -142,6 +142,36 @@ class ContactDispatcherTest {
                 "landing on a platform-tagged fixture must still fire BallTouchedPlatform");
     }
 
+    // Seesaw design doc step 4 (Iron Rule): the new "seesawPlank" tag must
+    // fire BallTouchedPlatform like every other platform tag, or landing
+    // on a seesaw silently stops resetting the combo chain.
+    @Test
+    void landingOnASeesawPlankFiresBallTouchedPlatform() {
+        createPlatform(0f, 0f, "seesawPlank");
+        createBall(0f, BALL_RADIUS + 0.05f);
+
+        stepUntilContactOrTimeout(120);
+
+        assertTrue(dispatched.stream().anyMatch(BallTouchedPlatform.class::isInstance),
+                "landing on a seesawPlank-tagged fixture must fire BallTouchedPlatform");
+    }
+
+    // Seesaw design doc step 4: the plank is deliberately NOT rampage-
+    // breakable this slice (TODOS.md "Seesaw + rampage interaction
+    // (deferred)") -- guards against it being swept into preSolve()'s
+    // breakable-tag list by accident. Breaking it would also orphan the
+    // joint/fulcrum, which no mid-run destruction path handles today.
+    @Test
+    void fastBallDoesNotBreakASeesawPlankWhileRampageIsActive() {
+        rampageActive = true;
+        createPlatform(0f, 0f, "seesawPlank");
+        createFastFallingBall(0f, BALL_RADIUS + 0.05f);
+
+        stepUntilContactOrTimeout(10);
+
+        assertFalse(anyPlatformDestroyed(), "a seesawPlank-tagged fixture must never break, even while rampage is active");
+    }
+
     // Rampage design doc, plan-eng-review 2026-08-06 (Test Review Iron
     // Rule -- mandatory, not optional): preSolve()'s break-threshold
     // wiring had zero coverage before this. These four tests confirm the
