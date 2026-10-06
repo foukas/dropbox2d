@@ -13,9 +13,15 @@ package com.foukas.dropbox2d.generation;
  * 2026-08-06) patrol back and forth via a kinematic Box2D body, mutually
  * exclusive with WEAK for this slice -- see GameplayScreen's
  * rollPlatformType() for the roll order and MovingPlatformReachability for
- * the gap-fairness math a moving flanking platform requires. */
+ * the gap-fairness math a moving flanking platform requires.
+ *
+ * SEESAW platforms (seesaw design doc, plan-eng-review 2026-08-20) are a
+ * dynamic plank pinned to a static fulcrum by a revolute joint -- this
+ * codebase's first Box2D joint. Mutually exclusive with MOVING and WEAK
+ * for this slice; rolled after both (see rollPlatformType()). */
 public enum PlatformType {
     NORMAL,
     WEAK,
-    MOVING
+    MOVING,
+    SEESAW
 }

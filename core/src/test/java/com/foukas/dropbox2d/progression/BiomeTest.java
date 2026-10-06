@@ -98,4 +98,23 @@ class BiomeTest {
                 "baseline movingPlatformChance " + baseline
                         + " should be visible-but-not-dominant, same posture as weakPlatformChance");
     }
+
+    // Seesaw design doc, Next Steps 2/10: mirrors the movingPlatformChance
+    // pair above -- every biome exposes a seesawChance, and the baseline is
+    // nonzero but not dominant.
+    @Test
+    void everyBiomeHasASeesawChance() {
+        for (Biome biome : Biome.values()) {
+            assertTrue(biome.getSeesawChance() > 0f,
+                    biome + " has a non-positive seesawChance");
+        }
+    }
+
+    @Test
+    void baselineSeesawChanceIsNotBuriedAtRareOdds() {
+        float baseline = Biome.values()[0].getSeesawChance();
+        assertTrue(baseline >= 0.05f && baseline <= 0.5f,
+                "baseline seesawChance " + baseline
+                        + " should be visible-but-not-dominant, same posture as movingPlatformChance");
+    }
 }

@@ -691,12 +691,21 @@ public class GameplayScreen implements Screen, GameEventListener {
      * movingPlatformChance first, else weakPlatformChance as before, else
      * NORMAL -- keeps WEAK's own distribution unchanged whenever a side
      * isn't MOVING, since the two rolls consume independent draws from
-     * the unseeded random stream (moving-platforms step 4). */
+     * the unseeded random stream (moving-platforms step 4).
+     *
+     * SEESAW slots in after WEAK (seesaw step 1): MOVING, else WEAK, else
+     * SEESAW, else NORMAL -- an independent draw per check, so MOVING's and
+     * WEAK's existing distributions stay unchanged. Until seesaw
+     * construction is wired into spawnNextRow() (seesaw step 7), a SEESAW
+     * side is built exactly like NORMAL by createPlatformSegment(). */
     private PlatformType rollPlatformType(Biome biome) {
         if (MathUtils.random() < biome.getMovingPlatformChance()) {
             return PlatformType.MOVING;
         }
-        return MathUtils.random() < biome.getWeakPlatformChance() ? PlatformType.WEAK : PlatformType.NORMAL;
+        if (MathUtils.random() < biome.getWeakPlatformChance()) {
+            return PlatformType.WEAK;
+        }
+        return MathUtils.random() < biome.getSeesawChance() ? PlatformType.SEESAW : PlatformType.NORMAL;
     }
 
     private Body createPlatformSegment(float xStart, float xEnd, float y, PlatformType type) {
