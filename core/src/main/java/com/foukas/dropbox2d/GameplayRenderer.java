@@ -51,6 +51,11 @@ public class GameplayRenderer {
     // color already in this palette, so a moving platform reads clearly
     // within the first minute of a run (Success Criteria).
     private static final Color MOVING_PLATFORM_COLOR = new Color(0.2235f, 1f, 0.0784f, 1f); // #39ff14 neon green
+    // Seesaw design doc step 8 -- bright lavender, distinct from cyan/
+    // orange/green platforms, gold pickups, and the pink grid, and light
+    // enough to read against both biomes' dark purple/navy backgrounds.
+    // Placeholder pick, swap freely after playtest.
+    private static final Color SEESAW_PLANK_COLOR = new Color(0.7843f, 0.6353f, 1f, 1f); // #c8a2ff lavender
     private static final Color POWERUP_COLOR = new Color(1f, 0.8235f, 0.2471f, 1f); // #ffd23f gold
     private static final Color WRECKING_BALL_COLOR = new Color(1f, 0.1765f, 0.1765f, 1f); // #ff2d2d red
     // Rampage design doc (plan-eng-review, 2026-08-06) -- distinct from
@@ -551,6 +556,7 @@ public class GameplayRenderer {
         Object tag = fixture.getUserData();
         Color baseColor = "weakPlatform".equals(tag) ? WEAK_PLATFORM_COLOR
                 : "movingPlatform".equals(tag) ? MOVING_PLATFORM_COLOR
+                : "seesawPlank".equals(tag) ? SEESAW_PLANK_COLOR
                 : NORMAL_PLATFORM_COLOR;
         shapeRenderer.setColor(baseColor);
 
@@ -558,15 +564,25 @@ public class GameplayRenderer {
         Vector2 v = new Vector2();
         shape.getVertex(0, v);
         float hx = Math.abs(v.x);
+        float halfThickness = GameplayScreen.PLATFORM_THICKNESS / 2f;
         float x = body.getPosition().x;
         float y = body.getPosition().y;
-        shapeRenderer.rect(x - hx, y - GameplayScreen.PLATFORM_THICKNESS / 2f, hx * 2f, GameplayScreen.PLATFORM_THICKNESS);
+        // Rotation-aware (seesaw step 8): a seesaw plank is the first
+        // platform body that ever rotates. Same rect() rotation overload
+        // drawDebris() uses, with the origin at the body's center so both
+        // rects pivot exactly where the physics body does. Every other
+        // platform's angle is always 0, so this draws them unchanged.
+        float rotationDegrees = body.getAngle() * MathUtils.radDeg;
+        shapeRenderer.rect(x - hx, y - halfThickness, hx, halfThickness,
+                hx * 2f, GameplayScreen.PLATFORM_THICKNESS, 1f, 1f, rotationDegrees);
 
         // Thin lighter strip along the top edge -- cheap "lit from above" cue.
         Color highlight = baseColor.cpy().lerp(Color.WHITE, 0.35f);
         shapeRenderer.setColor(highlight);
         float highlightThickness = GameplayScreen.PLATFORM_THICKNESS * 0.2f;
-        shapeRenderer.rect(x - hx, y + GameplayScreen.PLATFORM_THICKNESS / 2f - highlightThickness, hx * 2f, highlightThickness);
+        float highlightY = y + halfThickness - highlightThickness;
+        shapeRenderer.rect(x - hx, highlightY, hx, y - highlightY,
+                hx * 2f, highlightThickness, 1f, 1f, rotationDegrees);
     }
 
     // Small type-tag -> display-name mapping so the HUD doesn't print raw
