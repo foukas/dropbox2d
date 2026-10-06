@@ -108,6 +108,17 @@ public class GameplayScreen implements Screen, GameEventListener {
     private static final float MOVING_PLATFORM_WIDTH = 0.8f;
     private static final float MIN_FILLER_WIDTH = 0.3f;
 
+    // Seesaw design doc (step 3, plan-eng-review 2026-08-20): this
+    // codebase's first collision filter. A seesaw's plank and its filler
+    // share this negative groupIndex so the rotating plank never generates
+    // contact response against its own filler, while both still collide
+    // normally with the ball, walls, and other rows. groupIndex is global
+    // across the whole physics world, not scoped to one plank/filler pair --
+    // harmless here since rows never spatially overlap, but RESERVED: any
+    // future feature wanting its own "these never collide" pairing must
+    // pick a different value, never reuse this one.
+    static final short SEESAW_NO_COLLIDE_GROUP = -1;
+
     private static final float POWERUP_SPAWN_CHANCE = 0.15f;
     // Package-private: also read by GameplayRenderer.
     static final float POWERUP_RADIUS = 0.25f;
@@ -709,6 +720,13 @@ public class GameplayScreen implements Screen, GameEventListener {
     }
 
     private Body createPlatformSegment(float xStart, float xEnd, float y, PlatformType type) {
+        return createPlatformSegment(xStart, xEnd, y, type, (short) 0);
+    }
+
+    /** groupIndex overload (seesaw step 3) -- 0 means "no filter group",
+     * Box2D's default, so the 4-arg overload above is behavior-identical to
+     * before. A seesaw filler passes SEESAW_NO_COLLIDE_GROUP. */
+    private Body createPlatformSegment(float xStart, float xEnd, float y, PlatformType type, short groupIndex) {
         float width = xEnd - xStart;
         float centerX = xStart + width / 2f;
 
@@ -724,6 +742,7 @@ public class GameplayScreen implements Screen, GameEventListener {
         fixtureDef.shape = shape;
         fixtureDef.friction = 0.6f;
         fixtureDef.restitution = 0f;
+        fixtureDef.filter.groupIndex = groupIndex;
         Fixture fixture = body.createFixture(fixtureDef);
         fixture.setUserData(type == PlatformType.WEAK ? "weakPlatform" : "platform");
         shape.dispose();
