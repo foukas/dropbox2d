@@ -579,15 +579,27 @@ public class GameplayScreen implements Screen, GameEventListener {
         }
         float gapEnd = gapStart + gapWidth;
 
+        // If every attempt failed, the loop exits with its last roll
+        // anyway -- a side whose type still doesn't fit its span degrades
+        // to NORMAL rather than building broken geometry (seesaw step 7).
+        // Only ever widens the effective gap, so reachability is unharmed.
+        if (!sideFits(leftType, gapStart)) leftType = PlatformType.NORMAL;
+        if (!sideFits(rightType, WORLD_WIDTH - gapEnd)) rightType = PlatformType.NORMAL;
+
         // A MOVING side is split into a static filler + a separate small
         // kinematic piece (moving-platforms step 6) -- never the whole
         // flanking span made kinematic (see the design doc's Constraints
         // for why that geometry would open an unvalidated wall-side hole).
+        // A SEESAW side is a filler (wall to fulcrum) + a revolute-jointed
+        // plank (seesaw step 7, same filler-then-feature shape).
         // leftAvailableSpanEnd/rightAvailableSpanStart narrow the power-up
         // placement span to the filler's footprint only on a MOVING side
-        // (Next Step 7) -- unchanged (gapStart/gapEnd) for NORMAL/WEAK.
+        // (Next Step 7), and to the part of the filler the plank never
+        // covers on a SEESAW side -- unchanged (gapStart/gapEnd) for
+        // NORMAL/WEAK.
         Body left = null;
         Body leftKinematic = null;
+        SeesawSegment leftSeesaw = null;
         float leftAvailableSpanEnd = gapStart;
         if (gapStart > 0.1f) {
             if (leftType == PlatformType.MOVING) {
@@ -595,12 +607,17 @@ public class GameplayScreen implements Screen, GameEventListener {
                 left = segment.filler();
                 leftKinematic = segment.kinematic();
                 leftAvailableSpanEnd = segment.fillerEdge();
+            } else if (leftType == PlatformType.SEESAW) {
+                leftSeesaw = createSeesawSegment(0f, gapStart, rowY);
+                left = leftSeesaw.filler();
+                leftAvailableSpanEnd = gapStart - 2f * SEESAW_HALF_LENGTH;
             } else {
                 left = createPlatformSegment(0f, gapStart, rowY, leftType);
             }
         }
         Body right = null;
         Body rightKinematic = null;
+        SeesawSegment rightSeesaw = null;
         float rightAvailableSpanStart = gapEnd;
         if (WORLD_WIDTH - gapEnd > 0.1f) {
             if (rightType == PlatformType.MOVING) {
@@ -608,6 +625,10 @@ public class GameplayScreen implements Screen, GameEventListener {
                 right = segment.filler();
                 rightKinematic = segment.kinematic();
                 rightAvailableSpanStart = segment.fillerEdge();
+            } else if (rightType == PlatformType.SEESAW) {
+                rightSeesaw = createSeesawSegment(WORLD_WIDTH, gapEnd, rowY);
+                right = rightSeesaw.filler();
+                rightAvailableSpanStart = gapEnd + 2f * SEESAW_HALF_LENGTH;
             } else {
                 right = createPlatformSegment(gapEnd, WORLD_WIDTH, rowY, rightType);
             }
@@ -637,6 +658,16 @@ public class GameplayScreen implements Screen, GameEventListener {
         PlatformRow row = new PlatformRow(rowY, left, right, powerUp);
         row.leftKinematic = leftKinematic;
         row.rightKinematic = rightKinematic;
+        if (leftSeesaw != null) {
+            row.leftSeesawPlank = leftSeesaw.plank();
+            row.leftSeesawFulcrum = leftSeesaw.fulcrum();
+            row.leftSeesawJoint = leftSeesaw.joint();
+        }
+        if (rightSeesaw != null) {
+            row.rightSeesawPlank = rightSeesaw.plank();
+            row.rightSeesawFulcrum = rightSeesaw.fulcrum();
+            row.rightSeesawJoint = rightSeesaw.joint();
+        }
         rows.add(row);
         pendingScoreRows.addLast(row);
     }
@@ -797,9 +828,7 @@ public class GameplayScreen implements Screen, GameEventListener {
      *
      * SEESAW slots in after WEAK (seesaw step 1): MOVING, else WEAK, else
      * SEESAW, else NORMAL -- an independent draw per check, so MOVING's and
-     * WEAK's existing distributions stay unchanged. Until seesaw
-     * construction is wired into spawnNextRow() (seesaw step 7), a SEESAW
-     * side is built exactly like NORMAL by createPlatformSegment(). */
+     * WEAK's existing distributions stay unchanged. */
     private PlatformType rollPlatformType(Biome biome) {
         if (MathUtils.random() < biome.getMovingPlatformChance()) {
             return PlatformType.MOVING;
