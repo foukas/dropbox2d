@@ -146,8 +146,8 @@ public final class SeesawFactory {
     }
 
     /** Adds a point mass at (localX, localY) in the body's frame -- the
-     * single door's keel below its pivot, or a double-door flap's
-     * counterweight behind its hinge (eng review D7). Honors the body's
+     * single door's keel below its pivot, or any other off-center weight a
+     * future door needs (double-door eng review D7). Honors the body's
      * existing center of mass: new center = (m0*c0 + m*p) / (m0 + m).
      * Box2D's MassData.I is about the body origin, so the point adds
      * m*|p|^2 directly. For the single door the plank's own center is the
@@ -164,115 +164,5 @@ public final class SeesawFactory {
                 (before.mass * before.center.y + mass * localY) / totalMass);
         after.I = before.I + mass * localX * localX + mass * localY * localY;
         body.setMassData(after);
-    }
-
-    /** Everything that shapes a double door. Values come from the
-     * double-door drop sweep (docs/designs/double-door-trapdoor.md). */
-    public record DoubleDoorParams(float holeWidth, float maxAngleRadians, float counterweightMass,
-                                   float counterweightArm, float counterweightDrop, float angularDamping,
-                                   float flapDensity, float thickness, float minFillerWidth,
-                                   float minLipWidth, short groupIndex, float flapTail) {
-    }
-
-    public record DoubleDoor(Body filler, Body lip, Body leftFulcrum, Body leftFlap, RevoluteJoint leftJoint,
-                             Body rightFulcrum, Body rightFlap, RevoluteJoint rightJoint,
-                             float holeStart, float holeEnd) {
-    }
-
-    /** Builds a double door on the flanking span between wallX and gapEdgeX
-     * (either order), laid out like buildDoor() with the same random-slack
-     * placement:
-     *
-     *   wall | filler |hingeL== flap L ==><== flap R ==hingeR| lip | gap
-     *                  cw(-theta) [-thetaMax,0]   [0,+thetaMax] ccw(+theta)
-     *
-     * Each flap is holeWidth/2 long with its body origin at its hinge (the
-     * hole edge, mid-thickness). A counterweight behind the hinge, below
-     * the strip, holds it shut against the level (0) limit; a ball's weight
-     * far enough out (beyond the hold threshold x*) swings it down. Both
-     * flaps share the reserved no-collide group with the strips and with
-     * each other, and carry the plank tag (never breakable, no combo
-     * reset on contact). The caller must have checked
-     * SeesawGeometry.fitsTrapdoorGeometry() first. */
-    public static DoubleDoor buildDoubleDoor(World world, float wallX, float gapEdgeX, float y,
-                                             DoubleDoorParams p, float placement) {
-        float span = Math.abs(gapEdgeX - wallX);
-        float slack = span - p.minFillerWidth() - p.holeWidth() - p.minLipWidth();
-        if (slack < -1e-4f) {
-            throw new IllegalArgumentException("span " + span + " too narrow for a double door with hole " + p.holeWidth());
-        }
-        slack = Math.max(0f, slack);
-        float clampedPlacement = Math.max(0f, Math.min(1f, placement));
-
-        float sign = gapEdgeX > wallX ? 1f : -1f;
-        float fillerWidth = p.minFillerWidth() + slack * clampedPlacement;
-        float holeNear = wallX + sign * fillerWidth;
-        float holeFar = holeNear + sign * p.holeWidth();
-        float holeStart = Math.min(holeNear, holeFar);
-        float holeEnd = holeStart + p.holeWidth();
-
-        Body filler = staticSegment(world, Math.min(wallX, holeNear), Math.max(wallX, holeNear), y,
-                p.thickness(), "platform", p.groupIndex());
-        Body lip = staticSegment(world, Math.min(holeFar, gapEdgeX), Math.max(holeFar, gapEdgeX), y,
-                p.thickness(), "platform", p.groupIndex());
-
-        Flap left = buildFlap(world, holeStart, y, +1f, p);
-        Flap right = buildFlap(world, holeEnd, y, -1f, p);
-        return new DoubleDoor(filler, lip, left.fulcrum(), left.flap(), left.joint(),
-                right.fulcrum(), right.flap(), right.joint(), holeStart, holeEnd);
-    }
-
-    private record Flap(Body fulcrum, Body flap, RevoluteJoint joint) {
-    }
-
-    /** One flap hinged at hingeX, extending toward the hole center
-     * (direction +1 = right from the hole's left edge, -1 = left from its
-     * right edge). Opening rotates the tip downward: clockwise (negative)
-     * for a +1 flap, counter-clockwise (positive) for a -1 flap. */
-    private static Flap buildFlap(World world, float hingeX, float y, float direction, DoubleDoorParams p) {
-        BodyDef fulcrumDef = new BodyDef();
-        fulcrumDef.type = BodyDef.BodyType.StaticBody;
-        fulcrumDef.position.set(hingeX, y);
-        Body fulcrum = world.createBody(fulcrumDef);
-
-        BodyDef flapDef = new BodyDef();
-        flapDef.type = BodyDef.BodyType.DynamicBody;
-        flapDef.position.set(hingeX, y);
-        Body flap = world.createBody(flapDef);
-
-        // The flap spans from flapTail behind its hinge (under the strip,
-        // no-collide group) to the hole center. Opening the flap raises the
-        // tail through the strip, lifting a ball off the strip corner instead
-        // of opening a pocket beside it (sweep 4, user-approved 2026-10-07).
-        float length = p.holeWidth() / 2f;
-        float total = length + p.flapTail();
-        PolygonShape shape = new PolygonShape();
-        shape.setAsBox(total / 2f, p.thickness() / 2f,
-                new Vector2(direction * (length - p.flapTail()) / 2f, 0f), 0f);
-        FixtureDef fixtureDef = new FixtureDef();
-        fixtureDef.shape = shape;
-        fixtureDef.density = p.flapDensity();
-        fixtureDef.friction = PLATFORM_FRICTION;
-        fixtureDef.restitution = PLATFORM_RESTITUTION;
-        fixtureDef.filter.groupIndex = p.groupIndex();
-        flap.createFixture(fixtureDef).setUserData(PLANK_TAG);
-        shape.dispose();
-
-        RevoluteJointDef jointDef = new RevoluteJointDef();
-        jointDef.initialize(fulcrum, flap, new Vector2(hingeX, y));
-        jointDef.enableLimit = true;
-        if (direction > 0f) {
-            jointDef.lowerAngle = -p.maxAngleRadians();
-            jointDef.upperAngle = 0f;
-        } else {
-            jointDef.lowerAngle = 0f;
-            jointDef.upperAngle = p.maxAngleRadians();
-        }
-        jointDef.enableMotor = false;
-        RevoluteJoint joint = (RevoluteJoint) world.createJoint(jointDef);
-
-        addPointMass(flap, p.counterweightMass(), -direction * p.counterweightArm(), -p.counterweightDrop());
-        flap.setAngularDamping(p.angularDamping());
-        return new Flap(fulcrum, flap, joint);
     }
 }

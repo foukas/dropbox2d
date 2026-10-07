@@ -32,9 +32,11 @@ design doc under `~/.gstack/projects/Test/` (see slug warning below):
   the shipped constants, so retune only by re-running the sweep. Commits
   `aa9ba63..9714958`; playtested on desktop and the Galaxy A56.
 
-**Nothing is in progress.** Next candidates live in `TODOS.md` (including split double-door
-trapdoors and a "door shafts" biome). Ask whoever is driving what to pick up next; don't
-assume.
+**Nothing is in progress.** Next candidates live in `TODOS.md` (including a "door shafts"
+biome). Double-door trapdoors were designed, reviewed and swept on 2026-10-07 and then
+**shelved**: no setting passed the never-wedge bar (see `TODOS.md` and
+`docs/designs/double-door-trapdoor.md` for what four sweeps proved, and git `1a5aeae` for the
+code). Ask whoever is driving what to pick up next; don't assume.
 
 **Design rule the user stated (2026-10-06):** "Flinging the ball in a direction that is not
 down is impeding the goal." Evaluate new mechanics against it first.

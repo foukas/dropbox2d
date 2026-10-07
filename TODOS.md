@@ -48,13 +48,17 @@
 **Context:** Retune the door only by re-running the sweep; the focused guard in `SeesawDropTest` asserts every acceptance threshold against `SEESAW_DOOR`.
 **Depends on / blocked by:** None — closed.
 
-## Split double-door trapdoor (Approach C, deferred from the trapdoor design doc)
-**What:** Two keeled flaps hinged at each lip, opening downward in the middle like a double-beam drawbridge, instead of one center-pivoted plank.
-**Why:** The shipped trapdoor needs a 3.1-wide hole (a center-pivoted plank only clears a ball-sized gap near vertical), so a door side needs 3.7 units of platform and reads as "a second gap with a lid." End-hinged flaps open the full width, so the hole could shrink to roughly 1.1 units — a real hatch that fits narrower platforms and spawns more often.
-**Pros:** Smaller, more distinct door; more frequent spawns.
-**Cons:** Two joints and two keels per door (double the tuning), new geometry, more recycling cleanup; the drop sweep would need a second door model.
-**Context:** Revisit if trapdoors feel too rare or too similar to the guaranteed gap in play. Reuse `SeesawFactory`, `SeesawGeometry.clearanceAt()`-style checks and `SeesawDropTest`'s harness.
-**Depends on / blocked by:** None — trapdoor shipped 2026-10-07.
+## Split double-door trapdoor — SHELVED (2026-10-07, four sweeps, nothing qualified)
+**What:** Two counterweighted flaps hinged at the hole edges (double-leaf bascule), added as a second door type with a per-biome signature (design doc `docs/designs/double-door-trapdoor.md`, office-hours + eng-review approved).
+**Why shelved:** Four headless drop sweeps (~1,240 settings, `fullDoubleDoorSweep`) found no setting meeting the never-wedge / seam-passes / settle bar. What each sweep established:
+1. A counterweight hung **below** the hinge cradles the ball in a half-open V at the seam (8/8 seam rests wedged).
+2. A **level** counterweight removes the cradle (every torque scales with cos(angle), so a flap opens fully or not at all, and holding near the hinge is compatible with opening at the seam iff x* < half the flap) — but at a 90° limit nothing closes a vertical flap, so the limit must stay below 90°.
+3. A **required hinge hold** is incompatible with never-wedge: any counterweight strong enough to hold a ball near a hinge also cradles one at the seam; hard (11 m/s) landings punch through near the hinge regardless. The user made the hold best-effort.
+4. With hold best-effort, the remaining failures were a **hinge-edge trap** (ball pinned between the strip corner and a flap swinging open beneath it) and **hard drops bouncing back out** of a ~1.5–1.7 hatch (ball restitution 0.55). Flap "tails" under the strip helped (best cell 17 failures; one cell had zero wedges but 21 bounce-outs) but nothing qualified, so the agreed stop rule shelved it.
+**Pros:** If revisited, the data and tooling exist: the full harness, sweep and factory code are in git at `1a5aeae` (shelved record), with geometry `fb283cd`, factory `5009bce`, harness refactor `2fac0a2`.
+**Cons:** Needs a genuinely different mechanism (e.g. a latch-like threshold, or a non-bouncy hatch material), not more tuning of this one.
+**Context:** The single door and the shared pieces it uses (`SeesawFactory.addPointMass`, the door-model `SeesawDropTest` harness) stayed. Start a revisit with `/office-hours`, not a re-sweep.
+**Depends on / blocked by:** A new mechanism idea.
 
 ## Trapdoor "door shafts" biome (deferred from the trapdoor design doc)
 **What:** A biome that lines trapdoors up vertically so a skilled player plunges through several doors in a row without breaking the combo.
