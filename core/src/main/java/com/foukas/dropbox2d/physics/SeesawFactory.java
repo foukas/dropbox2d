@@ -171,7 +171,7 @@ public final class SeesawFactory {
     public record DoubleDoorParams(float holeWidth, float maxAngleRadians, float counterweightMass,
                                    float counterweightArm, float counterweightDrop, float angularDamping,
                                    float flapDensity, float thickness, float minFillerWidth,
-                                   float minLipWidth, short groupIndex) {
+                                   float minLipWidth, short groupIndex, float flapTail) {
     }
 
     public record DoubleDoor(Body filler, Body lip, Body leftFulcrum, Body leftFlap, RevoluteJoint leftJoint,
@@ -240,9 +240,15 @@ public final class SeesawFactory {
         flapDef.position.set(hingeX, y);
         Body flap = world.createBody(flapDef);
 
+        // The flap spans from flapTail behind its hinge (under the strip,
+        // no-collide group) to the hole center. Opening the flap raises the
+        // tail through the strip, lifting a ball off the strip corner instead
+        // of opening a pocket beside it (sweep 4, user-approved 2026-10-07).
         float length = p.holeWidth() / 2f;
+        float total = length + p.flapTail();
         PolygonShape shape = new PolygonShape();
-        shape.setAsBox(length / 2f, p.thickness() / 2f, new Vector2(direction * length / 2f, 0f), 0f);
+        shape.setAsBox(total / 2f, p.thickness() / 2f,
+                new Vector2(direction * (length - p.flapTail()) / 2f, 0f), 0f);
         FixtureDef fixtureDef = new FixtureDef();
         fixtureDef.shape = shape;
         fixtureDef.density = p.flapDensity();

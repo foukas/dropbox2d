@@ -143,6 +143,27 @@ public class GameplayScreen implements Screen, GameEventListener {
             MIN_FILLER_WIDTH,
             0.3f,                          // minimum lip width
             SEESAW_NO_COLLIDE_GROUP);
+    // Double-door trapdoor (docs/designs/double-door-trapdoor.md).
+    // PROVISIONAL until the double-door drop sweep (./gradlew :core:sweepTest)
+    // picks the values; SeesawDropTest's double-door guard asserts every
+    // acceptance threshold against exactly this record.
+    static final SeesawFactory.DoubleDoorParams DOUBLE_DOOR = new SeesawFactory.DoubleDoorParams(
+            1.55f,                         // hole width W
+            (float) Math.toRadians(90),    // flap joint limit thetaMax
+            0.45f,                         // counterweight mass M_c
+            0.55f,                         // counterweight arm c behind the hinge
+            0.2f,                          // counterweight drop d below the hinge
+            5.0f,                          // flap angular damping
+            SEESAW_PLANK_DENSITY,          // flap density
+            PLATFORM_THICKNESS,
+            MIN_FILLER_WIDTH,
+            0.3f,                          // minimum lip width
+            SEESAW_NO_COLLIDE_GROUP,
+            0f);                           // flap tail behind the hinge
+    // Whether double-door flaps use the preSolve restitution override
+    // (adopted only if no as-is setting qualifies in the sweep).
+    static final boolean DOUBLE_DOOR_LOW_RESTITUTION = false;
+
     // Whether the door uses the preSolve plank-restitution override
     // (design doc adoption rule: only if no as-is door qualifies).
     static final boolean SEESAW_DOOR_LOW_RESTITUTION = false;
