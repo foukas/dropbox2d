@@ -99,26 +99,85 @@ class SeesawDropTest {
                      String description) {
     }
 
+    // --------------------------------------------------------- door models
+
+    /** A door built for one run: its strips, its moving plank(s) and the
+     * hole they cover (double-door eng review D1: door models are nested
+     * types of this test, not separate classes). */
+    record BuiltDoor(Body filler, Body lip, List<Body> planks, float holeStart, float holeEnd) {
+        int indexOf(Body body) {
+            return planks.indexOf(body);
+        }
+
+        float maxAbsAngle() {
+            float max = 0f;
+            for (Body plank : planks) max = Math.max(max, Math.abs(plank.getAngle()));
+            return max;
+        }
+    }
+
+    /** What the classifier knows about a run that hasn't passed, at its
+     * classify point. */
+    record EndState(boolean stalled, boolean onPlank, boolean touchesStrip, boolean touchesOther,
+                    boolean overHole, boolean anyTouchedPlankUnsettled, float maxAngle, boolean steered) {
+    }
+
+    /** One door type under test: how to build it and how to classify a run
+     * that ends without passing. */
+    interface DoorModel {
+        BuiltDoor build(World world, float span, float placement);
+
+        Outcome classifyUnpassed(EndState s);
+    }
+
+    /** The shipped single trapdoor. Its classification is the single-door
+     * rule set exactly as approved (eng review D6 + sweep revisions). */
+    record SingleDoorModel(DoorParams params) implements DoorModel {
+        @Override
+        public BuiltDoor build(World world, float span, float placement) {
+            SeesawFactory.Door d = SeesawFactory.buildDoor(world, 0f, span, ROW_Y, params, placement);
+            return new BuiltDoor(d.filler(), d.lip(), List.of(d.plank()), d.holeStart(), d.holeEnd());
+        }
+
+        @Override
+        public Outcome classifyUnpassed(EndState s) {
+            if (s.stalled() && s.onPlank() && s.touchesStrip() && (s.maxAngle() >= SETTLE_ANGLE || s.overHole())) {
+                return Outcome.WEDGED; // D6
+            }
+            if (s.stalled() && s.onPlank() && !s.touchesStrip() && !s.touchesOther()) {
+                return Outcome.HELD;
+            }
+            if (!s.overHole()) {
+                return Outcome.BOUNCED;
+            }
+            if (s.steered()) {
+                // Still on the door after the release window: the steering
+                // pinned it there; counts as held (sweep revision). A real
+                // wedge was caught above.
+                return Outcome.HELD;
+            }
+            return Outcome.UNCLASSIFIED;
+        }
+    }
+
     // ------------------------------------------------------------- one run
 
-    /** Bodies the ball can touch, counted per begin/end contact. */
+    /** Bodies the ball can touch, counted per begin/end contact, with a
+     * separate count per plank. */
     private static final class Contacts implements ContactListener {
         final Body ball;
-        final Body plank;
-        final Body filler;
-        final Body lip;
+        final BuiltDoor door;
         final boolean lowRestitution;
-        int plankCount;
+        final int[] plankCounts;
         int fillerCount;
         int lipCount;
         int otherCount;
 
-        Contacts(Body ball, Body plank, Body filler, Body lip, boolean lowRestitution) {
+        Contacts(Body ball, BuiltDoor door, boolean lowRestitution) {
             this.ball = ball;
-            this.plank = plank;
-            this.filler = filler;
-            this.lip = lip;
+            this.door = door;
             this.lowRestitution = lowRestitution;
+            this.plankCounts = new int[door.planks().size()];
         }
 
         private Body other(Contact c) {
@@ -130,9 +189,10 @@ class SeesawDropTest {
         }
 
         private void count(Body other, int delta) {
-            if (other == plank) plankCount += delta;
-            else if (other == filler) fillerCount += delta;
-            else if (other == lip) lipCount += delta;
+            int plank = door.indexOf(other);
+            if (plank >= 0) plankCounts[plank] += delta;
+            else if (other == door.filler()) fillerCount += delta;
+            else if (other == door.lip()) lipCount += delta;
             else otherCount += delta;
         }
 
@@ -150,20 +210,40 @@ class SeesawDropTest {
             // The plank restitution override the design doc may adopt
             // (Constraints, "Impact dominates"): Box2D mixes restitution as
             // the max, so it can only be lowered per contact here.
-            if (lowRestitution && other(c) == plank) {
-                c.setRestitution(0.1f);
+            if (lowRestitution) {
+                Body o = other(c);
+                if (o != null && door.indexOf(o) >= 0) {
+                    c.setRestitution(0.1f);
+                }
             }
         }
 
         @Override public void postSolve(Contact c, ContactImpulse i) {
         }
 
+        int plankTotal() {
+            int sum = 0;
+            for (int n : plankCounts) sum += n;
+            return sum;
+        }
+
+        boolean anyTouchedPlankUnsettled() {
+            for (int i = 0; i < plankCounts.length; i++) {
+                if (plankCounts[i] > 0 && Math.abs(door.planks().get(i).getAngle()) >= SETTLE_ANGLE) return true;
+            }
+            return false;
+        }
+
         int total() {
-            return plankCount + fillerCount + lipCount + otherCount;
+            return plankTotal() + fillerCount + lipCount + otherCount;
         }
     }
 
     static RunResult run(DoorParams p, Layout layout, Entry entry, Steer steer, float damping, boolean lowRestitution) {
+        return run(new SingleDoorModel(p), layout, entry, steer, damping, lowRestitution);
+    }
+
+    static RunResult run(DoorModel model, Layout layout, Entry entry, Steer steer, float damping, boolean lowRestitution) {
         World world = new World(new Vector2(0f, GRAVITY), true);
         try {
             // Left-side flanking span: wall at x = 0, gap edge at x = span.
@@ -176,11 +256,10 @@ class SeesawDropTest {
             wall.createFixture(wallShape, 0f);
             wallShape.dispose();
 
-            SeesawFactory.Door door = SeesawFactory.buildDoor(world, 0f, layout.span(), ROW_Y, p, layout.placement());
+            BuiltDoor door = model.build(world, layout.span(), layout.placement());
             float holeStart = door.holeStart();
             float holeEnd = door.holeEnd();
             float pivotX = (holeStart + holeEnd) / 2f;
-            float plankHalf = p.holeWidth() / 2f + p.plankOverlap();
             float restY = ROW_Y + THICKNESS / 2f + BALL_RADIUS;
 
             Body ball;
@@ -207,7 +286,7 @@ class SeesawDropTest {
             float steerValue = steer == Steer.NONE ? 0f : steer == Steer.TOWARD ? towardSign : -towardSign;
             boolean steered = steer != Steer.NONE;
 
-            Contacts contacts = new Contacts(ball, door.plank(), door.filler(), door.lip(), lowRestitution);
+            Contacts contacts = new Contacts(ball, door, lowRestitution);
             world.setContactListener(contacts);
 
             float t = 0f;
@@ -235,7 +314,7 @@ class SeesawDropTest {
                 t += STEP;
 
                 Vector2 pos = ball.getPosition();
-                boolean onPlank = contacts.plankCount > 0;
+                boolean onPlank = contacts.plankTotal() > 0;
                 if (onPlank && !wasPlank && (Float.isNaN(firstPlankContact) || airborne >= AIRBORNE_GAP)) {
                     finalLandingStart = t;
                 }
@@ -262,7 +341,7 @@ class SeesawDropTest {
                     passTime = t;
                 }
 
-                float angle = Math.abs(door.plank().getAngle());
+                float angle = door.maxAbsAngle();
                 if (!Float.isNaN(passTime)) {
                     if (angle < SETTLE_ANGLE) {
                         if (Float.isNaN(settledSince)) settledSince = t;
@@ -307,23 +386,10 @@ class SeesawDropTest {
                     releaseUntil = t + RELEASE_WINDOW;
                 }
                 if (t >= (released ? releaseUntil : firstPlankContact + CLASSIFY_AFTER_CONTACT)) {
-                    boolean stalled = stallSince >= STALL_WINDOW;
-                    boolean touchesStrip = contacts.fillerCount > 0 || contacts.lipCount > 0;
-                    Outcome o;
-                    if (stalled && onPlank && touchesStrip && (angle >= SETTLE_ANGLE || overHole)) {
-                        o = Outcome.WEDGED; // D6
-                    } else if (stalled && onPlank && !touchesStrip && contacts.otherCount == 0) {
-                        o = Outcome.HELD;
-                    } else if (!overHole) {
-                        o = Outcome.BOUNCED;
-                    } else if (steered) {
-                        // Still on the door after the release window: the
-                        // steering pinned it there; counts as held (sweep
-                        // revision). A real wedge was caught above.
-                        o = Outcome.HELD;
-                    } else {
-                        o = Outcome.UNCLASSIFIED;
-                    }
+                    EndState s = new EndState(stallSince >= STALL_WINDOW, onPlank,
+                            contacts.fillerCount > 0 || contacts.lipCount > 0, contacts.otherCount > 0,
+                            overHole, contacts.anyTouchedPlankUnsettled(), angle, steered);
+                    Outcome o = model.classifyUnpassed(s);
                     return new RunResult(o, Float.NaN, grazed, true, Float.NaN, maxY - ROW_Y, entry.describe());
                 }
             }
