@@ -1,6 +1,6 @@
 # Session Handoff — dropbox2d
 
-Written 2026-09-15 (updated 2026-10-06 when the seesaw shipped) to let a different logged-in user/account pick up this project without
+Written 2026-09-15 (updated 2026-10-06 when the seesaw shipped, 2026-10-07 when it became a trapdoor) to let a different logged-in user/account pick up this project without
 re-deriving context. Nothing here is guessable from the code alone — it's operational
 knowledge, standing decisions, and state that only existed in a prior chat session.
 
@@ -20,10 +20,24 @@ design doc under `~/.gstack/projects/Test/` (see slug warning below):
   — the codebase's first Box2D joint (revolute) and first collision filter
   (`SEESAW_NO_COLLIDE_GROUP`, a reserved, world-global `groupIndex`). All 10 Next Steps
   landed in commits `4359400..bdcf638`, playtested on desktop and the Galaxy A56.
+- **Trapdoor seesaw** (`docs/designs/seesaw-trapdoor.md` in the repo, cross-session copy
+  `foukas-main-design-20261006-114558.md`, marked `SHIPPED` 2026-10-07) — replaced the
+  flanking seesaw, which "just tilts and does nothing else." SEESAW sides are now a keeled,
+  revolute-jointed plank over a randomly placed 3.1-wide hole: land off-center, it swings
+  open, you drop through and keep the combo. Built by `physics/SeesawFactory` (which also
+  owns every static platform segment and the shared platform material). Door constants
+  (`GameplayScreen.SEESAW_DOOR`) were picked by a headless drop sweep, not by feel: run
+  `./gradlew :core:sweepTest` to regenerate `core/build/reports/seesaw-sweep.csv`; the
+  always-on `SeesawDropTest` guard asserts never-wedge / pass / settle / no-graze against
+  the shipped constants, so retune only by re-running the sweep. Commits
+  `aa9ba63..9714958`; playtested on desktop and the Galaxy A56.
 
-**Nothing is in progress.** Next candidates live in `TODOS.md` — including a new "Seesaw
-follow-ups" item (angular-velocity launch, passage integration, constant tuning). Ask
-whoever is driving what to pick up next; don't assume.
+**Nothing is in progress.** Next candidates live in `TODOS.md` (including split double-door
+trapdoors and a "door shafts" biome). Ask whoever is driving what to pick up next; don't
+assume.
+
+**Design rule the user stated (2026-10-06):** "Flinging the ball in a direction that is not
+down is impeding the goal." Evaluate new mechanics against it first.
 
 ## Gstack slug mismatch (do not lose time rediscovering this)
 
@@ -86,7 +100,8 @@ question.
   Do not "fix" this without it being raised again by the user.
 - **Seesaw + rampage interaction:** deliberately deferred (not scoped into the seesaw bare
   mechanic). The plank is never breakable; its filler IS rampage-breakable (explicit user
-  call, 2026-10-06). Tracked as its own item in `TODOS.md` ("Seesaw + rampage interaction
+  call, 2026-10-06), and so is the trapdoor's gap-side lip — a broken strip leaves a working
+  door. Tracked as its own item in `TODOS.md` ("Seesaw + rampage interaction
   (deferred)") with the reasoning already written out there — read it before re-deciding this.
 
 ## What to read, in order, to fully resume

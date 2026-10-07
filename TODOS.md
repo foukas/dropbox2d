@@ -9,7 +9,7 @@
 **Depends on / blocked by:** None — fully independent.
 
 ## Content variety follow-up (power-ups, platform types) — biome, moving-platform, rampage, and seesaw slices shipped
-**What:** More power-ups (lighter/bouncier ball, gap-magnet) and more platform/hazard types (one-way platforms, spikes). Biome-based depth progression shipped 2026-08-04 (design doc `foukas-main-design-20260803-143417.md`); moving platforms shipped 2026-08-06 (design doc `foukas-main-design-20260805-095358.md`); the rampage power-up (all platforms breakable for its duration, escalating spectacle FX, rampage-local counter) shipped 2026-08-06 (design doc `foukas-main-design-20260806-141746.md`); the seesaw bare mechanic (revolute-jointed plank, this codebase's first Box2D joint and first collision filter) shipped 2026-10-06 (design doc `foukas-main-design-20260820-150834.md`) — none of the four are part of this deferred item anymore.
+**What:** More power-ups (lighter/bouncier ball, gap-magnet) and more platform/hazard types (one-way platforms, spikes). Biome-based depth progression shipped 2026-08-04 (design doc `foukas-main-design-20260803-143417.md`); moving platforms shipped 2026-08-06 (design doc `foukas-main-design-20260805-095358.md`); the rampage power-up (all platforms breakable for its duration, escalating spectacle FX, rampage-local counter) shipped 2026-08-06 (design doc `foukas-main-design-20260806-141746.md`); the seesaw bare mechanic (revolute-jointed plank, this codebase's first Box2D joint and first collision filter) shipped 2026-10-06 (design doc `foukas-main-design-20260820-150834.md`) and was reworked into the trapdoor seesaw 2026-10-07 (`docs/designs/seesaw-trapdoor.md`) — none of the four are part of this deferred item anymore.
 **Why:** Explicitly deferred during the 2026-07-29 office-hours session — the user chose "a real art style" over "more content variety" as the top priority. Biomes, moving platforms, rampage, then seesaws were picked up as successive wedges; other power-ups and the remaining hazard types (one-way, spikes) are what's left deferred.
 **Pros:** `PowerUpManager`'s registry pattern (`core/powerups/`) was explicitly built to make adding power-ups cheap (`register()` + one new class, no architecture changes needed) — confirmed genuinely low-friction: rampage reused `AbstractDensityPowerUp`'s shared lifecycle directly.
 **Cons:** Remaining platform/hazard types are a bigger lift than power-ups — each needs its own Box2D body behavior, not just a registry entry. Moving platforms' own reachability/fairness derivation (amplitude-shrink transform, split-body geometry) is a template for how involved this gets.
@@ -38,14 +38,30 @@
 **Pros:** Captures real design thought (the tag decision, the physics-stability question) now, while it's fresh, instead of losing it once the session ends.
 **Cons:** Speculative until seesaws actually ship and get played with -- may never be worth building.
 **Context:** Would need a mid-run destruction path in `drainPendingWorldMutations()`/`removeBodyFromRows()` for the plank+fulcrum+joint (identified during eng-review, ruled out as unnecessary work for the bare-mechanic slice since the plank currently has no mid-run destruction trigger at all). **Shipped state (2026-10-06):** the seesaw's *filler* (wall-to-fulcrum static segment) is tagged plain `"platform"`, so rampage CAN break it — leaving the plank still pivoting on its invisible, fixture-less fulcrum with no platform beside it. Surfaced during implementation (no review round had caught it); the user explicitly chose to leave it breakable rather than give the filler its own non-breakable tag, and it played fine on desktop and the Galaxy A56. If this item is picked up, decide plank and filler together.
-**Depends on / blocked by:** None — the seesaw bare mechanic shipped 2026-10-06.
+**Depends on / blocked by:** None — the seesaw bare mechanic shipped 2026-10-06. **Trapdoor update (2026-10-07):** the seesaw is now a trapdoor; the plank is still never breakable, and its wall filler AND new gap-side lip are plain `"platform"` (rampage-breakable). A broken strip leaves a working door.
 
-## Seesaw follow-ups (deferred from the seesaw design doc)
-**What:** (1) Angular-velocity-driven ball launch (design doc Approach C) — read the joint's live angular velocity as the ball leaves the plank and impart it to the ball; `PlatformRow.left/rightSeesawJoint` is kept specifically for this. (2) Full row-generation/passage integration — a seesaw participating in the gap-crossing mechanic itself. (3) Tuning: `SEESAW_HALF_LENGTH` 0.9, `SEESAW_MAX_ANGLE` 0.35 rad, `SEESAW_PLANK_DENSITY` 0.5, `seesawChance` 0.2 per biome, plank color `#c8a2ff` are all placeholders that played well but were never deliberately tuned.
-**Why:** All three were explicitly scoped out of the bare-mechanic slice (design doc Open Questions / Premise 6).
-**Pros:** (1) is the design doc's named "genuine payoff of using a real joint" and is cheap now that the joint exists.
-**Cons:** (1) adds "has the ball left the plank" contact tracking; (2) is a separate design question entirely.
-**Context:** Run via `/office-hours` if (2) is picked up; (1) could plausibly go straight to `/plan-eng-review`.
+## Seesaw follow-ups — RESOLVED into the trapdoor seesaw (2026-10-07)
+**What:** (1) Angular-velocity-driven ball launch, (2) passage integration, (3) constant tuning — all from the flanking-seesaw design doc. **Resolution:** /office-hours (2026-10-06) ruled out (1): a passive seesaw can only hand back energy the ball put in, so a launch is either redundant with Box2D contact physics or a scripted boost, and the user's rule is "flinging the ball in a direction that is not down is impeding the goal." (2) became the trapdoor seesaw (`docs/designs/seesaw-trapdoor.md`): the plank covers a hole and is an extra way down that keeps the combo. (3) was done by a headless drop sweep (`./gradlew :core:sweepTest`, `SeesawDropTest`) that picked `GameplayScreen.SEESAW_DOOR`.
+**Why:** Kept for the record of why the launch idea was dropped.
+**Pros:** N/A — closed.
+**Cons:** None.
+**Context:** Retune the door only by re-running the sweep; the focused guard in `SeesawDropTest` asserts every acceptance threshold against `SEESAW_DOOR`.
+**Depends on / blocked by:** None — closed.
+
+## Split double-door trapdoor (Approach C, deferred from the trapdoor design doc)
+**What:** Two keeled flaps hinged at each lip, opening downward in the middle like a double-beam drawbridge, instead of one center-pivoted plank.
+**Why:** The shipped trapdoor needs a 3.1-wide hole (a center-pivoted plank only clears a ball-sized gap near vertical), so a door side needs 3.7 units of platform and reads as "a second gap with a lid." End-hinged flaps open the full width, so the hole could shrink to roughly 1.1 units — a real hatch that fits narrower platforms and spawns more often.
+**Pros:** Smaller, more distinct door; more frequent spawns.
+**Cons:** Two joints and two keels per door (double the tuning), new geometry, more recycling cleanup; the drop sweep would need a second door model.
+**Context:** Revisit if trapdoors feel too rare or too similar to the guaranteed gap in play. Reuse `SeesawFactory`, `SeesawGeometry.clearanceAt()`-style checks and `SeesawDropTest`'s harness.
+**Depends on / blocked by:** None — trapdoor shipped 2026-10-07.
+
+## Trapdoor "door shafts" biome (deferred from the trapdoor design doc)
+**What:** A biome that lines trapdoors up vertically so a skilled player plunges through several doors in a row without breaking the combo.
+**Why:** Doors keep the combo, which makes them the skilled route; stacking them turns that into a set piece unique to this game (suggested by the office-hours cross-model pass).
+**Pros:** Builds directly on shipped pieces (`SeesawFactory.buildDoor`, biome roster).
+**Cons:** Needs row-generation control (doors aligned across rows) that the current per-row random generator doesn't have; reachability stays safe because doors are always extra passages.
+**Context:** A new design question — run via `/office-hours`.
 **Depends on / blocked by:** None.
 
 ## Investigate moving-platform friction dragging the ball near a gap edge
