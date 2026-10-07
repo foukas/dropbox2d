@@ -15,10 +15,15 @@ package com.foukas.dropbox2d.generation;
  * rollPlatformType() for the roll order and MovingPlatformReachability for
  * the gap-fairness math a moving flanking platform requires.
  *
- * SEESAW platforms (seesaw design doc, plan-eng-review 2026-08-20) are a
- * dynamic plank pinned to a static fulcrum by a revolute joint -- this
- * codebase's first Box2D joint. Mutually exclusive with MOVING and WEAK
- * for this slice; rolled after both (see rollPlatformType()). */
+ * SEESAW platforms are a weight-triggered TRAPDOOR seesaw
+ * (docs/designs/seesaw-trapdoor.md, 2026-10-07; the name is kept from the
+ * original flanking seesaw, eng review D4): a keeled plank pinned at its
+ * center by a revolute joint covers a hole in the flanking platform. Land
+ * off-center and it swings open, dropping the ball through a second way
+ * down that keeps the combo; the keel and damping close it again. Always
+ * an extra passage, never the only one -- the row's gap is untouched.
+ * Mutually exclusive with MOVING and WEAK; rolled after both (see
+ * rollPlatformType()). */
 public enum PlatformType {
     NORMAL,
     WEAK,

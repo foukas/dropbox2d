@@ -214,8 +214,10 @@ public class GameplayRenderer {
             drawPlatform(row.right);
             drawPlatform(row.leftKinematic);
             drawPlatform(row.rightKinematic);
-            // Plank only, drawn after its filler so it sits on top. Never
+            // Trapdoor lips, then the plank last so it sits on top. Never
             // the fulcrum -- it has no fixture for drawPlatform() to read.
+            drawPlatform(row.leftLip);
+            drawPlatform(row.rightLip);
             drawPlatform(row.leftSeesawPlank);
             drawPlatform(row.rightSeesawPlank);
             drawPowerUp(row.powerUp);

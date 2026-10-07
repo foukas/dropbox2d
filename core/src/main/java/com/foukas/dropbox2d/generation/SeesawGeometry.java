@@ -8,21 +8,10 @@ package com.foukas.dropbox2d.generation;
  * "does a tilted plank open a ball-sized gap past the lip corner", and
  * fitsTrapdoorGeometry() is the flanking-span check spawnNextRow()'s retry
  * loop uses -- reject and reroll, never clamp or build broken geometry
- * (same posture as MovingPlatformReachability.fitsSplitBodyGeometry()).
- *
- * fitsSeesawGeometry() is the shipped flanking seesaw's check (seesaw
- * design doc, 2026-08-20). It stays only until the trapdoor is wired into
- * spawnNextRow(), then goes. */
+ * (same posture as MovingPlatformReachability.fitsSplitBodyGeometry()). */
 public final class SeesawGeometry {
 
     private SeesawGeometry() {
-    }
-
-    /** True if a flanking span of the given size fits a plank of
-     * 2 * plankHalfLength plus at least minFillerWidth of filler between
-     * the plank's wall-side end and the wall. */
-    public static boolean fitsSeesawGeometry(float flankingSpan, float plankHalfLength, float minFillerWidth) {
-        return flankingSpan >= 2f * plankHalfLength + minFillerWidth;
     }
 
     /** Perpendicular distance from a lip corner to a plank of the given

@@ -142,18 +142,22 @@ class ContactDispatcherTest {
                 "landing on a platform-tagged fixture must still fire BallTouchedPlatform");
     }
 
-    // Seesaw design doc step 4 (Iron Rule): the new "seesawPlank" tag must
-    // fire BallTouchedPlatform like every other platform tag, or landing
-    // on a seesaw silently stops resetting the combo chain.
+    // Trapdoor seesaw (docs/designs/seesaw-trapdoor.md): INVERTED from the
+    // flanking seesaw's Iron Rule test -- the plank is a door, and dropping
+    // through a door keeps the combo, so it must NOT fire
+    // BallTouchedPlatform. Re-adding "seesawPlank" to beginContact()'s
+    // chain would silently make every door cost the combo.
     @Test
-    void landingOnASeesawPlankFiresBallTouchedPlatform() {
+    void landingOnASeesawPlankDoesNotFireBallTouchedPlatform() {
         createPlatform(0f, 0f, "seesawPlank");
         createBall(0f, BALL_RADIUS + 0.05f);
 
-        stepUntilContactOrTimeout(120);
+        for (int i = 0; i < 120; i++) {
+            world.step(1f / 60f, 6, 2);
+        }
 
-        assertTrue(dispatched.stream().anyMatch(BallTouchedPlatform.class::isInstance),
-                "landing on a seesawPlank-tagged fixture must fire BallTouchedPlatform");
+        assertFalse(dispatched.stream().anyMatch(BallTouchedPlatform.class::isInstance),
+                "landing on a seesawPlank-tagged fixture must not fire BallTouchedPlatform");
     }
 
     // Seesaw design doc step 4: the plank is deliberately NOT rampage-

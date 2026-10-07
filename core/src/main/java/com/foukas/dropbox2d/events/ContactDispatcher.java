@@ -16,9 +16,9 @@ import java.util.function.BooleanSupplier;
  * "ball", "platform" (solid, permanent -- also breakable while rampage is
  * active, rampage design doc plan-eng-review 2026-08-06), "weakPlatform"
  * (always breakable), "movingPlatform" (solid, kinematic, patrols -- also
- * breakable while rampage is active), "seesawPlank" (dynamic, revolute-
- * jointed -- never breakable, not even during rampage, seesaw design doc
- * 2026-08-20), "powerUp:&lt;type&gt;" (sensor
+ * breakable while rampage is active), "seesawPlank" (a trapdoor's keeled,
+ * revolute-jointed plank -- never breakable, not even during rampage, and
+ * never resets the combo), "powerUp:&lt;type&gt;" (sensor
  * pickup, colon-delimited type tag). Every event here is dispatched once,
  * from the contact that triggered it -- nothing tracks ongoing "is
  * touching" state, so destroying a body afterward (which this class never
@@ -49,11 +49,12 @@ public class ContactDispatcher implements ContactListener {
         // "platform"/"weakPlatform" do, or landing on a moving platform
         // silently stops resetting the combo chain (plan-eng-review Test
         // Review Iron Rule -- guarded by ContactDispatcherTest, this
-        // class's first-ever unit test). "seesawPlank" joins the chain for
-        // the same reason (seesaw step 4) -- but is deliberately absent from
-        // preSolve()'s rampage-breakable list below.
-        if (isBallVs(a, b, "platform") || isBallVs(a, b, "weakPlatform") || isBallVs(a, b, "movingPlatform")
-                || isBallVs(a, b, "seesawPlank")) {
+        // class's first-ever unit test). "seesawPlank" is deliberately NOT
+        // in this chain (trapdoor seesaw, docs/designs/seesaw-trapdoor.md):
+        // the plank is a door, and dropping through a door you opened keeps
+        // the combo. Its wall filler and lip are plain "platform" and still
+        // reset it. Also absent from preSolve()'s rampage-breakable list.
+        if (isBallVs(a, b, "platform") || isBallVs(a, b, "weakPlatform") || isBallVs(a, b, "movingPlatform")) {
             bus.dispatch(new BallTouchedPlatform());
         }
 

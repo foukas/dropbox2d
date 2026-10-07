@@ -16,7 +16,6 @@ import com.badlogic.gdx.physics.box2d.FixtureDef;
 import com.badlogic.gdx.physics.box2d.PolygonShape;
 import com.badlogic.gdx.physics.box2d.World;
 import com.badlogic.gdx.physics.box2d.joints.RevoluteJoint;
-import com.badlogic.gdx.physics.box2d.joints.RevoluteJointDef;
 import com.badlogic.gdx.utils.viewport.ExtendViewport;
 import com.badlogic.gdx.utils.viewport.Viewport;
 import com.foukas.dropbox2d.events.BallOffTop;
@@ -123,14 +122,8 @@ public class GameplayScreen implements Screen, GameEventListener {
     // pick a different value, never reuse this one.
     static final short SEESAW_NO_COLLIDE_GROUP = -1;
 
-    // Seesaw tuning (seesaw design doc Open Questions) -- placeholders, by-
-    // feel like every other constant here. SEESAW_HALF_LENGTH is L in the
-    // doc's L*sin(thetaMax) far-end-sweep formula; SEESAW_MAX_ANGLE is
-    // thetaMax in radians (~20 degrees), bounded for legibility, not for
-    // filler clearance (the groupIndex filter above handles that).
-    // SEESAW_PLANK_DENSITY is low-ish so a ~0.5-mass ball visibly tips it.
-    private static final float SEESAW_HALF_LENGTH = 0.9f;
-    private static final float SEESAW_MAX_ANGLE = 0.35f;
+    // Plank density, carried over from the flanking seesaw; the keel in
+    // SEESAW_DOOR supplies the self-righting mass on top of it.
     private static final float SEESAW_PLANK_DENSITY = 0.5f;
 
     // Trapdoor seesaw door (docs/designs/seesaw-trapdoor.md), picked by the
@@ -620,16 +613,16 @@ public class GameplayScreen implements Screen, GameEventListener {
         // kinematic piece (moving-platforms step 6) -- never the whole
         // flanking span made kinematic (see the design doc's Constraints
         // for why that geometry would open an unvalidated wall-side hole).
-        // A SEESAW side is a filler (wall to fulcrum) + a revolute-jointed
-        // plank (seesaw step 7, same filler-then-feature shape).
+        // A SEESAW side is a trapdoor (docs/designs/seesaw-trapdoor.md):
+        // wall filler | keeled plank over a hole | lip, with the hole at a
+        // random spot in the span's slack (eng review D10).
         // leftAvailableSpanEnd/rightAvailableSpanStart narrow the power-up
         // placement span to the filler's footprint only on a MOVING side
-        // (Next Step 7), and to the part of the filler the plank never
-        // covers on a SEESAW side -- unchanged (gapStart/gapEnd) for
-        // NORMAL/WEAK.
+        // (Next Step 7), and to the wall filler on a SEESAW side --
+        // unchanged (gapStart/gapEnd) for NORMAL/WEAK.
         Body left = null;
         Body leftKinematic = null;
-        SeesawSegment leftSeesaw = null;
+        SeesawFactory.Door leftDoor = null;
         float leftAvailableSpanEnd = gapStart;
         if (gapStart > 0.1f) {
             if (leftType == PlatformType.MOVING) {
@@ -638,16 +631,16 @@ public class GameplayScreen implements Screen, GameEventListener {
                 leftKinematic = segment.kinematic();
                 leftAvailableSpanEnd = segment.fillerEdge();
             } else if (leftType == PlatformType.SEESAW) {
-                leftSeesaw = createSeesawSegment(0f, gapStart, rowY);
-                left = leftSeesaw.filler();
-                leftAvailableSpanEnd = gapStart - 2f * SEESAW_HALF_LENGTH;
+                leftDoor = SeesawFactory.buildDoor(world, 0f, gapStart, rowY, SEESAW_DOOR, MathUtils.random());
+                left = leftDoor.filler();
+                leftAvailableSpanEnd = leftDoor.holeStart();
             } else {
                 left = createPlatformSegment(0f, gapStart, rowY, leftType);
             }
         }
         Body right = null;
         Body rightKinematic = null;
-        SeesawSegment rightSeesaw = null;
+        SeesawFactory.Door rightDoor = null;
         float rightAvailableSpanStart = gapEnd;
         if (WORLD_WIDTH - gapEnd > 0.1f) {
             if (rightType == PlatformType.MOVING) {
@@ -656,9 +649,9 @@ public class GameplayScreen implements Screen, GameEventListener {
                 rightKinematic = segment.kinematic();
                 rightAvailableSpanStart = segment.fillerEdge();
             } else if (rightType == PlatformType.SEESAW) {
-                rightSeesaw = createSeesawSegment(WORLD_WIDTH, gapEnd, rowY);
-                right = rightSeesaw.filler();
-                rightAvailableSpanStart = gapEnd + 2f * SEESAW_HALF_LENGTH;
+                rightDoor = SeesawFactory.buildDoor(world, WORLD_WIDTH, gapEnd, rowY, SEESAW_DOOR, MathUtils.random());
+                right = rightDoor.filler();
+                rightAvailableSpanStart = rightDoor.holeEnd();
             } else {
                 right = createPlatformSegment(gapEnd, WORLD_WIDTH, rowY, rightType);
             }
@@ -688,15 +681,17 @@ public class GameplayScreen implements Screen, GameEventListener {
         PlatformRow row = new PlatformRow(rowY, left, right, powerUp);
         row.leftKinematic = leftKinematic;
         row.rightKinematic = rightKinematic;
-        if (leftSeesaw != null) {
-            row.leftSeesawPlank = leftSeesaw.plank();
-            row.leftSeesawFulcrum = leftSeesaw.fulcrum();
-            row.leftSeesawJoint = leftSeesaw.joint();
+        if (leftDoor != null) {
+            row.leftSeesawPlank = leftDoor.plank();
+            row.leftSeesawFulcrum = leftDoor.fulcrum();
+            row.leftSeesawJoint = leftDoor.joint();
+            row.leftLip = leftDoor.lip();
         }
-        if (rightSeesaw != null) {
-            row.rightSeesawPlank = rightSeesaw.plank();
-            row.rightSeesawFulcrum = rightSeesaw.fulcrum();
-            row.rightSeesawJoint = rightSeesaw.joint();
+        if (rightDoor != null) {
+            row.rightSeesawPlank = rightDoor.plank();
+            row.rightSeesawFulcrum = rightDoor.fulcrum();
+            row.rightSeesawJoint = rightDoor.joint();
+            row.rightLip = rightDoor.lip();
         }
         rows.add(row);
         pendingScoreRows.addLast(row);
@@ -704,16 +699,17 @@ public class GameplayScreen implements Screen, GameEventListener {
 
     /** Per-side geometry fit for spawnNextRow()'s retry loop -- a MOVING
      * side must fit its split-body geometry (moving-platforms step 6), a
-     * SEESAW side its plank plus filler (seesaw step 5); NORMAL/WEAK
-     * always fit. Extracted once SEESAW made the inline left/right
-     * conditions a second copy of a two-type branch. */
+     * SEESAW side its wall filler + trapdoor hole + lip (trapdoor T6);
+     * NORMAL/WEAK always fit. Extracted once SEESAW made the inline
+     * left/right conditions a second copy of a two-type branch. */
     private boolean sideFits(PlatformType type, float flankingSpan) {
         switch (type) {
             case MOVING:
                 return MovingPlatformReachability.fitsSplitBodyGeometry(
                         flankingSpan, MOVING_PLATFORM_WIDTH, MOVING_PLATFORM_AMPLITUDE, MIN_FILLER_WIDTH);
             case SEESAW:
-                return SeesawGeometry.fitsSeesawGeometry(flankingSpan, SEESAW_HALF_LENGTH, MIN_FILLER_WIDTH);
+                return SeesawGeometry.fitsTrapdoorGeometry(flankingSpan, SEESAW_DOOR.holeWidth(),
+                        SEESAW_DOOR.minFillerWidth(), SEESAW_DOOR.minLipWidth());
             default:
                 return true;
         }
@@ -782,69 +778,6 @@ public class GameplayScreen implements Screen, GameEventListener {
     }
 
     private record MovingSegment(Body filler, Body kinematic, float fillerEdge) {
-    }
-
-    /** Builds a SEESAW side (seesaw step 4): a static filler from the wall
-     * to the fulcrum, a fixture-less static fulcrum post (pure joint
-     * anchor, so it never needs its own clearance or filtering), and a
-     * dynamic plank centered on the fulcrum whose gap-facing end sits at
-     * gapEdgeX -- the same edge spawnNextRow()'s retry loop validated, so
-     * the plank at rest is exactly a NORMAL side's footprint. A revolute
-     * joint pins plank to fulcrum with a fixed +/-SEESAW_MAX_ANGLE limit
-     * and no motor: pure physics response, no scripted leveling (design doc
-     * Premise 4). Plank and filler share SEESAW_NO_COLLIDE_GROUP so the
-     * plank's wall-side half can sweep through the filler without jamming
-     * (design doc Premise 3, round-2 correction). wallX/gapEdgeX follow
-     * createMovingPlatformSegment()'s direction-agnostic convention.
-     *
-     * The plank is tagged "seesawPlank": it fires BallTouchedPlatform
-     * (ContactDispatcher.beginContact()) but is deliberately NOT rampage-
-     * breakable -- see TODOS.md "Seesaw + rampage interaction (deferred)". */
-    private SeesawSegment createSeesawSegment(float wallX, float gapEdgeX, float y) {
-        boolean gapIsToTheRight = gapEdgeX > wallX;
-        float sign = gapIsToTheRight ? 1f : -1f;
-        float fulcrumX = gapEdgeX - sign * SEESAW_HALF_LENGTH;
-
-        Body filler = createPlatformSegment(
-                gapIsToTheRight ? wallX : fulcrumX,
-                gapIsToTheRight ? fulcrumX : wallX,
-                y, PlatformType.NORMAL, SEESAW_NO_COLLIDE_GROUP);
-
-        BodyDef fulcrumDef = new BodyDef();
-        fulcrumDef.type = BodyDef.BodyType.StaticBody;
-        fulcrumDef.position.set(fulcrumX, y);
-        Body fulcrum = world.createBody(fulcrumDef);
-
-        BodyDef plankDef = new BodyDef();
-        plankDef.type = BodyDef.BodyType.DynamicBody;
-        plankDef.position.set(fulcrumX, y);
-        Body plank = world.createBody(plankDef);
-
-        PolygonShape shape = new PolygonShape();
-        shape.setAsBox(SEESAW_HALF_LENGTH, PLATFORM_THICKNESS / 2f);
-
-        FixtureDef fixtureDef = new FixtureDef();
-        fixtureDef.shape = shape;
-        fixtureDef.density = SEESAW_PLANK_DENSITY;
-        fixtureDef.friction = SeesawFactory.PLATFORM_FRICTION;
-        fixtureDef.restitution = SeesawFactory.PLATFORM_RESTITUTION;
-        fixtureDef.filter.groupIndex = SEESAW_NO_COLLIDE_GROUP;
-        Fixture fixture = plank.createFixture(fixtureDef);
-        fixture.setUserData("seesawPlank");
-        shape.dispose();
-
-        RevoluteJointDef jointDef = new RevoluteJointDef();
-        jointDef.initialize(fulcrum, plank, new Vector2(fulcrumX, y));
-        jointDef.enableLimit = true;
-        jointDef.lowerAngle = -SEESAW_MAX_ANGLE;
-        jointDef.upperAngle = SEESAW_MAX_ANGLE;
-        jointDef.enableMotor = false;
-        RevoluteJoint joint = (RevoluteJoint) world.createJoint(jointDef);
-
-        return new SeesawSegment(filler, fulcrum, plank, joint);
-    }
-
-    private record SeesawSegment(Body filler, Body fulcrum, Body plank, RevoluteJoint joint) {
     }
 
     /** Extracted (plan-eng-review Code Quality finding, moving-platforms
@@ -1198,6 +1131,8 @@ public class GameplayScreen implements Screen, GameEventListener {
                 if (row.leftSeesawPlank == body) row.leftSeesawPlank = null;
                 if (row.leftSeesawFulcrum == body) row.leftSeesawFulcrum = null;
             }
+            if (row.leftLip == body) row.leftLip = null;
+            if (row.rightLip == body) row.rightLip = null;
             if (row.rightSeesawPlank == body || row.rightSeesawFulcrum == body) {
                 row.rightSeesawJoint = null;
                 if (row.rightSeesawPlank == body) row.rightSeesawPlank = null;
@@ -1298,6 +1233,8 @@ public class GameplayScreen implements Screen, GameEventListener {
             if (row.leftSeesawFulcrum != null) world.destroyBody(row.leftSeesawFulcrum);
             if (row.rightSeesawPlank != null) world.destroyBody(row.rightSeesawPlank);
             if (row.rightSeesawFulcrum != null) world.destroyBody(row.rightSeesawFulcrum);
+            if (row.leftLip != null) world.destroyBody(row.leftLip);
+            if (row.rightLip != null) world.destroyBody(row.rightLip);
             row.leftSeesawJoint = null;
             row.rightSeesawJoint = null;
             if (row.powerUp != null) world.destroyBody(row.powerUp);
@@ -1427,22 +1364,23 @@ public class GameplayScreen implements Screen, GameEventListener {
         // step 5).
         Body leftKinematic;
         Body rightKinematic;
-        // Non-null only when the matching side is PlatformType.SEESAW
-        // (seesaw step 6, mirroring leftKinematic/rightKinematic above) --
-        // left/right stay the static filler body (wall to fulcrum) in that
-        // case. The fulcrum has NO fixture (pure joint anchor), so it must
-        // never be passed to anything that reads getFixtureList().get(0)
-        // (drawPlatform(), platformWidth(), the tag checks). The joint
-        // reference is kept for the deferred angular-velocity launch
-        // (design doc Approach C) -- nothing reads it this slice, but it
-        // must be nulled whenever either body goes, since Box2D frees the
-        // joint itself when either attached body is destroyed.
+        // Non-null only when the matching side is PlatformType.SEESAW, a
+        // trapdoor (seesaw step 6, trapdoor T6; mirrors leftKinematic/
+        // rightKinematic above) -- left/right stay the wall filler, lip is
+        // the strip between the hole and the gap. The fulcrum has NO
+        // fixture (pure joint anchor), so it must never be passed to
+        // anything that reads getFixtureList().get(0) (drawPlatform(),
+        // platformWidth(), the tag checks). The joint reference must be
+        // nulled whenever either body goes, since Box2D frees the joint
+        // itself when either attached body is destroyed.
         Body leftSeesawPlank;
         Body leftSeesawFulcrum;
         RevoluteJoint leftSeesawJoint;
+        Body leftLip;
         Body rightSeesawPlank;
         Body rightSeesawFulcrum;
         RevoluteJoint rightSeesawJoint;
+        Body rightLip;
         Body powerUp;
 
         PlatformRow(float y, Body left, Body right, Body powerUp) {
