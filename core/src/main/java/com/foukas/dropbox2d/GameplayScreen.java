@@ -447,6 +447,14 @@ public class GameplayScreen implements Screen, GameEventListener {
     }
 
     private Body createBall(float x, float y) {
+        return createBallBody(world, x, y);
+    }
+
+    /** Package-private static (trapdoor eng review D2) so the trapdoor
+     * drop test builds the exact ball the game ships -- copying these
+     * constants into the test would let a ball retune silently invalidate
+     * its never-wedges guarantee. */
+    static Body createBallBody(World world, float x, float y) {
         BodyDef bodyDef = new BodyDef();
         bodyDef.type = BodyDef.BodyType.DynamicBody;
         bodyDef.position.set(x, y);
@@ -1024,22 +1032,28 @@ public class GameplayScreen implements Screen, GameEventListener {
         // as Approach A); tilt produces a continuous value based on how far
         // past its dead zone the device is tilted -- magnitude scales the
         // applied force, giving tilt genuine analog control tap never had.
-        float steer = inputProvider.getSteerValue();
+        applySteer(ballBody, inputProvider.getSteerValue());
+    }
+
+    /** Package-private static for the same reason as createBallBody()
+     * (trapdoor eng review D2): the drop test steers the ball through the
+     * game's own rule, not a copy of it. */
+    static void applySteer(Body ball, float steer) {
         if (Math.abs(steer) > 0.001f) {
             float direction = Math.signum(steer);
             float magnitude = Math.abs(steer);
 
-            float vx = ballBody.getLinearVelocity().x;
+            float vx = ball.getLinearVelocity().x;
             if (Math.signum(vx) != direction || Math.abs(vx) < MAX_HORIZONTAL_SPEED) {
-                ballBody.applyForceToCenter(direction * STEER_FORCE * magnitude, 0f, true);
+                ball.applyForceToCenter(direction * STEER_FORCE * magnitude, 0f, true);
             }
         }
 
         // Clamp horizontal speed directly -- no separate guard abstraction,
         // just inline clamping, consistent with the "direct" scope decision.
-        Vector2 vel = ballBody.getLinearVelocity();
+        Vector2 vel = ball.getLinearVelocity();
         if (Math.abs(vel.x) > MAX_HORIZONTAL_SPEED) {
-            ballBody.setLinearVelocity(MathUtils.clamp(vel.x, -MAX_HORIZONTAL_SPEED, MAX_HORIZONTAL_SPEED), vel.y);
+            ball.setLinearVelocity(MathUtils.clamp(vel.x, -MAX_HORIZONTAL_SPEED, MAX_HORIZONTAL_SPEED), vel.y);
         }
     }
 
