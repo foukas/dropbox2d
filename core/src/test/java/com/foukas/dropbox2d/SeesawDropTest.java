@@ -509,6 +509,34 @@ class SeesawDropTest {
         }
     }
 
+    // Double door basics (double-door eng review T2): with no load each
+    // counterweighted flap rests shut against its level limit, and a
+    // downward push at the tip swings it open in its signed direction
+    // (left flap clockwise/negative, right flap counter-clockwise/positive).
+    @Test
+    void doubleDoorRestsShutAndOpensDownwardAtTheTips() {
+        SeesawFactory.DoubleDoorParams p = new SeesawFactory.DoubleDoorParams(1.55f, (float) Math.toRadians(90),
+                0.45f, 0.5f, 0.2f, 5f, 0.5f, THICKNESS, 0.3f, 0.3f, GameplayScreen.SEESAW_NO_COLLIDE_GROUP);
+        World world = new World(new Vector2(0f, GRAVITY), true);
+        try {
+            SeesawFactory.DoubleDoor d = SeesawFactory.buildDoubleDoor(world, 0f, 3.0f, 0f, p, 0.5f);
+            for (int i = 0; i < 120; i++) world.step(STEP, 6, 2);
+            assertTrue(Math.abs(d.leftFlap().getAngle()) < 0.01f, "left flap should rest shut: " + d.leftFlap().getAngle());
+            assertTrue(Math.abs(d.rightFlap().getAngle()) < 0.01f, "right flap should rest shut: " + d.rightFlap().getAngle());
+
+            float seam = (d.holeStart() + d.holeEnd()) / 2f;
+            for (int i = 0; i < 30; i++) {
+                d.leftFlap().applyForce(0f, -40f, seam - 0.05f, 0f, true);
+                d.rightFlap().applyForce(0f, -40f, seam + 0.05f, 0f, true);
+                world.step(STEP, 6, 2);
+            }
+            assertTrue(d.leftFlap().getAngle() < -0.3f, "left flap should open clockwise: " + d.leftFlap().getAngle());
+            assertTrue(d.rightFlap().getAngle() > 0.3f, "right flap should open counter-clockwise: " + d.rightFlap().getAngle());
+        } finally {
+            world.dispose();
+        }
+    }
+
     private static DoorParams withGeometry(DoorParams p, float holeWidth, float maxAngle) {
         return new DoorParams(holeWidth, maxAngle, p.keelMass(), p.keelDepth(), p.angularDamping(),
                 p.plankDensity(), p.plankOverlap(), p.thickness(), p.minFillerWidth(), p.minLipWidth(),
