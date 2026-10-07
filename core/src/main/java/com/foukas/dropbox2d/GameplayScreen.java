@@ -42,6 +42,7 @@ import com.foukas.dropbox2d.platform.SafeAreaInsets;
 import com.foukas.dropbox2d.physics.DebrisManager;
 import com.foukas.dropbox2d.physics.MovingPlatformManager;
 import com.foukas.dropbox2d.physics.PhysicsNaNGuard;
+import com.foukas.dropbox2d.physics.SeesawFactory;
 import com.foukas.dropbox2d.physics.VelocityClamp;
 import com.foukas.dropbox2d.powerups.PowerUpManager;
 import com.foukas.dropbox2d.powerups.RampagePowerUp;
@@ -750,8 +751,8 @@ public class GameplayScreen implements Screen, GameEventListener {
 
         FixtureDef fixtureDef = new FixtureDef();
         fixtureDef.shape = shape;
-        fixtureDef.friction = 0.6f;
-        fixtureDef.restitution = 0f;
+        fixtureDef.friction = SeesawFactory.PLATFORM_FRICTION;
+        fixtureDef.restitution = SeesawFactory.PLATFORM_RESTITUTION;
         Fixture fixture = body.createFixture(fixtureDef);
         fixture.setUserData("movingPlatform");
         shape.dispose();
@@ -804,8 +805,8 @@ public class GameplayScreen implements Screen, GameEventListener {
         FixtureDef fixtureDef = new FixtureDef();
         fixtureDef.shape = shape;
         fixtureDef.density = SEESAW_PLANK_DENSITY;
-        fixtureDef.friction = 0.6f;
-        fixtureDef.restitution = 0f;
+        fixtureDef.friction = SeesawFactory.PLATFORM_FRICTION;
+        fixtureDef.restitution = SeesawFactory.PLATFORM_RESTITUTION;
         fixtureDef.filter.groupIndex = SEESAW_NO_COLLIDE_GROUP;
         Fixture fixture = plank.createFixture(fixtureDef);
         fixture.setUserData("seesawPlank");
@@ -853,29 +854,12 @@ public class GameplayScreen implements Screen, GameEventListener {
 
     /** groupIndex overload (seesaw step 3) -- 0 means "no filter group",
      * Box2D's default, so the 4-arg overload above is behavior-identical to
-     * before. A seesaw filler passes SEESAW_NO_COLLIDE_GROUP. */
+     * before. A seesaw filler passes SEESAW_NO_COLLIDE_GROUP. Built by
+     * SeesawFactory.staticSegment() (trapdoor eng review D3) so rows, doors
+     * and the drop test share one platform material. */
     private Body createPlatformSegment(float xStart, float xEnd, float y, PlatformType type, short groupIndex) {
-        float width = xEnd - xStart;
-        float centerX = xStart + width / 2f;
-
-        BodyDef bodyDef = new BodyDef();
-        bodyDef.type = BodyDef.BodyType.StaticBody;
-        bodyDef.position.set(centerX, y);
-        Body body = world.createBody(bodyDef);
-
-        PolygonShape shape = new PolygonShape();
-        shape.setAsBox(width / 2f, PLATFORM_THICKNESS / 2f);
-
-        FixtureDef fixtureDef = new FixtureDef();
-        fixtureDef.shape = shape;
-        fixtureDef.friction = 0.6f;
-        fixtureDef.restitution = 0f;
-        fixtureDef.filter.groupIndex = groupIndex;
-        Fixture fixture = body.createFixture(fixtureDef);
-        fixture.setUserData(type == PlatformType.WEAK ? "weakPlatform" : "platform");
-        shape.dispose();
-
-        return body;
+        String tag = type == PlatformType.WEAK ? "weakPlatform" : "platform";
+        return SeesawFactory.staticSegment(world, xStart, xEnd, y, PLATFORM_THICKNESS, tag, groupIndex);
     }
 
     /** Reverted rampage's edge-placement rule after device playtest (user
