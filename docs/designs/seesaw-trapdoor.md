@@ -882,6 +882,27 @@ Critical gaps (no test AND no handling AND silent): 0.
 
 **Conflict flags:** GameplayScreen.java is touched by the factory delegation, the ball statics and the wiring. Keep all three in Lane A.
 
+### S1: Sweep revision after the first full sweep (implementation, 2026-10-07)
+Finding: S1, first full sweep (396 cells, ~330k runs): 0 cells qualify. Wedging essentially solved (3 wedged runs total, 1 cell). Best cell (W 2.5, 75°, M 0.2, k 0.3, damping 3.0, low restitution) fails on: steered runs unclassified (108; full steer pins the ball against a strip), steer-toward drops not passing (88; full steer ~110 m/s² sideways outruns the door), no settle within 1.5 s (52; damping 3.0 too low for the keel pendulum), lip grazes on no-steer one-row passes (24), and 9 fast/3-row no-steer misses. Hole widths 2.3 and 2.7 did worse than 2.5.
+Implementation note: steering in the drop test starts at the ball's first contact (it models leaning on the door; steering through a whole drop moved the landing point by over 1 m).
+Question: "No trapdoor setting meets every approved threshold ... How should we proceed?" Options: Revise + widen (Recommended) / Keep thresholds, widen only / Step back on the design.
+State: approved
+Actual answer: Revise + widen (user, 2026-10-07)
+Accepted scope: Keep "never wedges" and "no-steer drops pass + don't graze" strict. Relax steered runs to "never wedges" only (full steer legitimately outruns or pins the door; pinned-while-steering counts as held, decided by a 1.5 s release check). Widen the sweep: damping up to {5, 8}, plank overlap {0, 0.1}. Re-run, then pin constants.
+History: supersedes the steered-run parts of D5/D6-era acceptance thresholds (steer-toward must pass; held only for steer-against).
+
+### S2: Second and third sweeps, constants pinned (implementation, 2026-10-07)
+Sweep 2 (S1 revision: steered runs never-wedge only with a 1.5 s release check; damping {0.5..8}; overlap {0, 0.1}): 1320 cells, 0 qualify; best cell 29 failures (16 lip grazes, 11 high-energy no-steer bounce-outs, 2 slow fast-drop passes) after fixing a harness bug (a steered roll that turns away from the door is bounced out, not unclassified). Best cells all at the widest hole.
+Question: "How do we close the gap?" Options: Widen hole width (Recommended) / Ship best, relax two rules / Lips don't reset combo.
+State: approved
+Actual answer: Widen hole width (user, 2026-10-07)
+Accepted scope: one more sweep with hole widths {2.7, 2.9, 3.1}, damping {4, 5, 6}, other axes unchanged; all thresholds strict.
+Sweep 3 measurement fix: the graze rule judges only landings whose whole ball footprint is over the hole (|x| + r ≤ W/2); a landing that overhangs a strip really touched the platform, so a combo reset there is correct game behavior.
+
+### Sweep results
+Sweep 3: 1296 cells, 2 qualify (W 3.1 at θmax 70° and 75°, M 0.3, k 0.6, damping 5.0, overlap 0, as-is restitution). Selection rule chose **W 3.1, θmax 70°, keel M 0.3 at k 0.6, angular damping 5.0, plank overlap 0, no restitution override** (T_open 2.07 s dead-center). Pinned as GameplayScreen.SEESAW_DOOR; SeesawDropTest.focusedGuardForShippedDoor asserts all thresholds against it (828 runs, ~0.9 s).
+Consequences vs. the design doc's estimates: the hole is wider than the doc's 2.3–2.7 grid (3.1), so a door side needs minFiller + 3.1 + minLip = 3.7 units of flanking span; doors will spawn less often than the 2.9–3.3 estimate implied (watch in playtest). θmax 70° keeps the rising door end lower (~1.46 above the row).
+
 ## Implementation Tasks
 Synthesized from this review's findings. Each task derives from a specific finding above. Run with Claude Code or Codex; checkbox as you ship.
 Effort ratio assumption: features ~30x, tests ~50x, refactors ~20x.

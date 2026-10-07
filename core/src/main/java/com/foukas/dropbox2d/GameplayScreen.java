@@ -133,6 +133,27 @@ public class GameplayScreen implements Screen, GameEventListener {
     private static final float SEESAW_MAX_ANGLE = 0.35f;
     private static final float SEESAW_PLANK_DENSITY = 0.5f;
 
+    // Trapdoor seesaw door (docs/designs/seesaw-trapdoor.md), picked by the
+    // drop sweep (./gradlew :core:sweepTest, 2026-10-07: 1296 cells, 2
+    // qualified; selection rule chose this one). SeesawDropTest's focused
+    // guard asserts every acceptance threshold against exactly this record
+    // -- retune here only together with a re-run of the sweep.
+    static final SeesawFactory.DoorParams SEESAW_DOOR = new SeesawFactory.DoorParams(
+            3.1f,                          // hole width W
+            (float) Math.toRadians(70),    // joint limit thetaMax
+            0.3f,                          // keel mass M
+            0.6f,                          // keel depth k below the pivot
+            5.0f,                          // plank angular damping
+            SEESAW_PLANK_DENSITY,
+            0f,                            // plank overlap past each hole edge
+            PLATFORM_THICKNESS,
+            MIN_FILLER_WIDTH,
+            0.3f,                          // minimum lip width
+            SEESAW_NO_COLLIDE_GROUP);
+    // Whether the door uses the preSolve plank-restitution override
+    // (design doc adoption rule: only if no as-is door qualifies).
+    static final boolean SEESAW_DOOR_LOW_RESTITUTION = false;
+
     private static final float POWERUP_SPAWN_CHANCE = 0.15f;
     // Package-private: also read by GameplayRenderer.
     static final float POWERUP_RADIUS = 0.25f;

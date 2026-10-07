@@ -14,5 +14,23 @@ dependencies {
 }
 
 test {
-    useJUnitPlatform()
+    // The trapdoor drop sweep (~hundreds of thousands of headless Box2D
+    // runs) is tagged "sweep" and kept out of the normal suite; run it with
+    // sweepTest (docs/designs/seesaw-trapdoor.md, eng review T0/R3-8).
+    useJUnitPlatform {
+        excludeTags 'sweep'
+    }
+}
+
+tasks.register('sweepTest', Test) {
+    description = 'Runs the trapdoor seesaw drop sweep; writes build/reports/seesaw-sweep.csv.'
+    group = 'verification'
+    testClassesDirs = sourceSets.test.output.classesDirs
+    classpath = sourceSets.test.runtimeClasspath
+    useJUnitPlatform {
+        includeTags 'sweep'
+    }
+    maxHeapSize = '1g'
+    testLogging.showStandardStreams = true
+    outputs.upToDateWhen { false }
 }
